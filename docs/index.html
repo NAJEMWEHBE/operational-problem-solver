@@ -150,7 +150,11 @@
 
   .reveal{opacity:0;transform:translateY(28px);transition:.7s cubic-bezier(.22,1,.36,1)}
   .reveal.in{opacity:1;transform:none}
-  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+  @media(prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    /* without animation these must be shown explicitly, or the hero stays invisible */
+    .reveal,.eyebrow,header h1,header p,.priorart,.cta,.chips,.herofig{opacity:1!important;transform:none!important}
+  }
 </style>
 </head>
 <body>
