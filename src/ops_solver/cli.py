@@ -35,8 +35,11 @@ def _load_dotenv(cwd: Path) -> None:
             continue
         key, _, val = line.partition("=")
         key = key.strip()
-        if key in _DOTENV_ALLOWED:
-            os.environ.setdefault(key, val.strip().strip('"').strip("'"))
+        # Override only when the var is absent OR present-but-empty; a real
+        # existing value already short-circuited at the top guard, so we never
+        # clobber a genuine env key — but an empty "" no longer shadows .env.
+        if key in _DOTENV_ALLOWED and not os.environ.get(key):
+            os.environ[key] = val.strip().strip('"').strip("'")
 
 
 def _render(report: RunReport) -> None:
