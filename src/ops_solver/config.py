@@ -77,6 +77,7 @@ class RunConfig:
 
     # Output
     out_path: Path | None = None
+    force: bool = False               # allow --out to overwrite an existing file
 
     # SDK-level API retries (429 / 5xx auto-retried by the client)
     api_max_retries: int = 4

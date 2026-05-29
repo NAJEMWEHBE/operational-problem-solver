@@ -77,7 +77,8 @@ def _read_readme(cwd: Path, limit: int = 1200) -> str:
         p = cwd / name
         if p.exists():
             try:
-                return p.read_text(encoding="utf-8", errors="ignore")[:limit]
+                with p.open("r", encoding="utf-8", errors="ignore") as fh:
+                    return fh.read(limit)   # bounded read; don't load a huge file into memory
             except OSError:
                 return ""
     return ""
@@ -88,13 +89,16 @@ def probe(cwd: Path, max_files: int = 60) -> dict:
     cwd = Path(cwd)
     files: list[str] = []
     if cwd.exists():
-        for p in sorted(cwd.rglob("*")):
+        for p in cwd.rglob("*"):
+            if p.is_symlink():                 # don't follow symlinks (loop / escape / DoS)
+                continue
             if any(part in _SKIP_DIRS for part in p.parts):
                 continue
             if p.is_file():
                 files.append(str(p.relative_to(cwd)))
-            if len(files) >= max_files:
-                break
+                if len(files) >= max_files:     # bound the walk, don't materialize the whole tree
+                    break
+        files.sort()
 
     return {
         "language": _detect_language(cwd, files),

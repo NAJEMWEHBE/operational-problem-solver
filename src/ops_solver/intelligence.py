@@ -7,9 +7,13 @@ ContextManifest handed to every Execution worker.
 
 from __future__ import annotations
 
+import logging
+
 from .config import RunConfig
 from .llm import LLM, fan_out
 from .models import ContextManifest, ManifestDraft
+
+logger = logging.getLogger("ops_solver.intelligence")
 
 _INTEL_SYSTEM = (
     "You are a software intelligence analyst. Given a problem statement and facts "
@@ -91,8 +95,16 @@ async def gather_context(llm: LLM, cfg: RunConfig, problem: str, probe: dict) ->
             temperature=0.3 + 0.15 * i,
         )
 
-    drafts = await fan_out([crow(i) for i in range(cfg.intel_workers)])
-    drafts = [d for d in drafts if isinstance(d, ManifestDraft)]
+    raw = await fan_out([crow(i) for i in range(cfg.intel_workers)])
+    drafts = [d for d in raw if isinstance(d, ManifestDraft)]
+    if cfg.intel_workers > 0 and not drafts:
+        raise RuntimeError(
+            f"Intelligence phase produced 0 usable manifest drafts out of "
+            f"{cfg.intel_workers} ({cfg.intel_model}). All Crow calls failed or returned "
+            f"unparseable output - check ANTHROPIC_API_KEY, the model id, and rate limits."
+        )
+    if len(drafts) < cfg.intel_workers:
+        logger.warning("intelligence: %d/%d Crow drafts survived", len(drafts), cfg.intel_workers)
     merged = _merge(drafts)
 
     language = cfg.language if cfg.language != "auto" else probe.get("language", "auto")

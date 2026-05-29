@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
@@ -24,6 +25,8 @@ from .config import DEFAULT_PRICE, PRICES, supports_sampling
 from .models import JudgeVerdict
 
 T = TypeVar("T", bound=BaseModel)
+
+logger = logging.getLogger("ops_solver.llm")
 
 
 # --- Token / cost accounting ---------------------------------------------
@@ -105,6 +108,11 @@ def _extract_json(text: str) -> dict | None:
             block = text[fence + 3 : end]
             if "\n" in block:
                 block = block.split("\n", 1)[1]
+            else:
+                # ```json{...} with no newline: strip the leading language tag
+                block = block.lstrip(
+                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-_"
+                )
             try:
                 return json.loads(block)
             except json.JSONDecodeError:
@@ -210,28 +218,35 @@ class LLM:
         temperature: float | None = None,
         thinking: bool = False,
     ) -> T | None:
-        """Return a validated `schema` instance. Tries the native structured-output
-        path, then falls back to instruction-guided JSON extraction."""
+        """Return a validated `schema` instance.
+
+        Primary path is the native structured-output API (one call). Only if that
+        call *raises* (e.g. an SDK build without `messages.parse`) do we make a
+        single fallback call with instruction-guided JSON extraction. We never make
+        a second API call just because the first returned unusable output, and we
+        never record usage twice for one call.
+        """
         messages = [{"role": "user", "content": user}]
+        kw: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": messages,
+        }
+        if thinking:
+            kw["thinking"] = {"type": "adaptive"}
+        elif temperature is not None and supports_sampling(model):
+            kw["temperature"] = temperature  # keep the per-worker diversity gradient
+
         try:
-            kw: dict[str, Any] = {
-                "model": model,
-                "max_tokens": max_tokens,
-                "system": system,
-                "messages": messages,
-            }
-            if thinking:
-                kw["thinking"] = {"type": "adaptive"}
             resp = await self.client.messages.parse(output_format=schema, **kw)
             self.ledger.record(model, resp.usage)
             parsed = getattr(resp, "parsed_output", None)
             if parsed is not None:
                 return parsed
-            obj = _coerce(_text_of(resp), schema)
-            if obj is not None:
-                return obj
-        except Exception:
-            pass
+            return _coerce(_text_of(resp), schema)
+        except Exception as exc:
+            logger.warning("structured(): native parse failed, falling back to JSON: %s", exc)
 
         text = await self._complete_raw(
             model=model,

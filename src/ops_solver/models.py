@@ -52,6 +52,7 @@ class EvalResult(BaseModel):
     worker_id: str
     stable: bool
     syntax_ok: bool
+    syntax_checked: bool = True   # False => language has no parser here; syntax_ok is assumed
     lint_ran: bool = False
     lint_ok: bool = True
     lint_score: float = 1.0          # 0..1
@@ -109,3 +110,4 @@ class RunReport(BaseModel):
     consensus_met: bool = False
     cost_usd: float = 0.0
     tokens: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
