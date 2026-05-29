@@ -1,4 +1,16 @@
+<div align="center">
+
+<img src="docs/assets/hero.svg" alt="operational-problem-solver" width="840" />
+
 # operational-problem-solver
+
+**Parallel worker teams · a consensus stability gate · an ELO tournament that ships the single best solution.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-a855f7?style=flat-square)](LICENSE) &nbsp;![Python](https://img.shields.io/badge/python-3.11%2B-38bdf8?style=flat-square) &nbsp;![Tests](https://img.shields.io/badge/tests-13%20passing-34d399?style=flat-square) &nbsp;![Built with Claude](https://img.shields.io/badge/built%20with-Claude%20Opus%204.8-f472b6?style=flat-square)
+
+[**🌐 Live page**](https://najemwehbe.github.io/operational-problem-solver/) &nbsp;·&nbsp; [Architecture](docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Skill](.claude/skills/problem-solver/SKILL.md)
+
+</div>
 
 A multi-team agentic engine for Claude Code. It spins up **parallel worker teams**
 to solve a technical problem, gates their output on a **consensus stability

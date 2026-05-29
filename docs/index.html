@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>operational-problem-solver — parallel agents · consensus · ELO tournament</title>
+<meta name="description" content="A multi-team agentic engine for Claude Code: parallel worker teams, a consensus stability gate, and an ELO tournament that ships the single best solution." />
+<meta property="og:title" content="operational-problem-solver" />
+<meta property="og:description" content="Parallel worker teams · consensus gate · ELO tournament → the single best solution." />
+<meta property="og:image" content="assets/hero.svg" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0c16'/%3E%3Ccircle cx='10' cy='12' r='3' fill='%2338bdf8'/%3E%3Ccircle cx='22' cy='12' r='3' fill='%23fbbf24'/%3E%3Ccircle cx='16' cy='22' r='3' fill='%23a855f7'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#06070e; --bg2:#0a0c16; --panel:#0d1120; --line:#1b2236;
+    --ink:#e9eefb; --mut:#8ea2c4; --dim:#5f7195;
+    --cyan:#38bdf8; --amber:#fbbf24; --violet:#a855f7; --pink:#f472b6; --green:#34d399;
+    --grad:linear-gradient(100deg,var(--cyan),var(--violet) 55%,var(--pink));
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Sora',system-ui,sans-serif; line-height:1.6;
+    overflow-x:hidden; -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+  h1,h2,h3{font-family:'Syne',sans-serif;line-height:1.05;letter-spacing:-.02em}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  .mesh{position:fixed;inset:0;z-index:-2;background:
+    radial-gradient(50% 40% at 18% 12%,rgba(56,189,248,.18),transparent 70%),
+    radial-gradient(45% 45% at 85% 20%,rgba(168,85,247,.20),transparent 70%),
+    radial-gradient(55% 50% at 70% 95%,rgba(244,114,182,.14),transparent 70%),
+    linear-gradient(180deg,var(--bg),var(--bg2));}
+  .grain{position:fixed;inset:0;z-index:-1;opacity:.05;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+  .orb{position:fixed;border-radius:50%;filter:blur(60px);z-index:-1;opacity:.5;animation:float 14s ease-in-out infinite}
+  .orb.a{width:380px;height:380px;background:rgba(56,189,248,.25);top:-80px;left:-60px}
+  .orb.b{width:420px;height:420px;background:rgba(168,85,247,.22);top:30%;right:-120px;animation-delay:-5s}
+  @keyframes float{0%,100%{transform:translateY(0) translateX(0)}50%{transform:translateY(40px) translateX(20px)}}
+
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);
+    background:rgba(6,7,14,.6);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:'Syne';font-weight:800;font-size:18px}
+  .dots{display:inline-flex;gap:4px}
+  .dots i{width:8px;height:8px;border-radius:50%;display:block}
+  .dots i:nth-child(1){background:var(--cyan)} .dots i:nth-child(2){background:var(--amber)} .dots i:nth-child(3){background:var(--violet)}
+  .navlinks{display:flex;gap:26px;align-items:center;font-size:14px;color:var(--mut)}
+  .navlinks a:hover{color:var(--ink)}
+  .ghbtn{border:1px solid var(--line);padding:8px 16px;border-radius:10px;font-size:14px;color:var(--ink);transition:.2s}
+  .ghbtn:hover{border-color:var(--violet);box-shadow:0 0 24px rgba(168,85,247,.35)}
+  @media(max-width:740px){.navlinks a:not(.ghbtn){display:none}}
+
+  header{padding:84px 0 40px;text-align:center}
+  .eyebrow{display:inline-flex;gap:10px;align-items:center;font-size:13px;color:var(--mut);
+    border:1px solid var(--line);border-radius:999px;padding:7px 16px;margin-bottom:28px;
+    opacity:0;animation:rise .7s .05s forwards}
+  .eyebrow b{color:var(--cyan);font-weight:600}
+  header h1{font-size:clamp(40px,7vw,84px);font-weight:800;margin-bottom:20px;opacity:0;animation:rise .7s .15s forwards}
+  header p.lead{font-size:clamp(17px,2.2vw,21px);color:var(--mut);max-width:680px;margin:0 auto 16px;opacity:0;animation:rise .7s .28s forwards}
+  .priorart{font-size:14px;color:var(--dim);max-width:640px;margin:0 auto 34px;opacity:0;animation:rise .7s .4s forwards}
+  .priorart b{color:var(--mut)}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;opacity:0;animation:rise .7s .52s forwards}
+  .btn{padding:14px 26px;border-radius:12px;font-weight:600;font-size:15px;transition:.22s;border:1px solid transparent}
+  .btn.primary{background:var(--grad);color:#0a0a12;box-shadow:0 10px 40px rgba(168,85,247,.4)}
+  .btn.primary:hover{transform:translateY(-2px);box-shadow:0 16px 54px rgba(168,85,247,.55)}
+  .btn.ghost{border-color:var(--line);color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--cyan);background:rgba(56,189,248,.08)}
+  .chips{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:40px;opacity:0;animation:rise .7s .64s forwards}
+  .chip{font-size:13px;color:var(--mut);border:1px solid var(--line);border-radius:10px;padding:9px 15px;background:rgba(13,17,32,.5)}
+  .chip b{color:var(--ink);font-weight:600}
+  .herofig{margin:54px auto 0;max-width:1000px;border:1px solid var(--line);border-radius:20px;overflow:hidden;
+    box-shadow:0 30px 90px rgba(0,0,0,.55);opacity:0;animation:rise .9s .7s forwards}
+  .herofig img{display:block;width:100%}
+  @keyframes rise{to{opacity:1;transform:translateY(0)}}
+  .eyebrow,header h1,header p,.priorart,.cta,.chips,.herofig{transform:translateY(18px)}
+
+  section{padding:80px 0}
+  .kicker{font-family:'JetBrains Mono';font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--violet);margin-bottom:14px}
+  h2.title{font-size:clamp(28px,4.5vw,46px);font-weight:700;margin-bottom:16px}
+  .sectionlead{color:var(--mut);max-width:620px;margin-bottom:48px}
+
+  .teams{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  @media(max-width:860px){.teams{grid-template-columns:1fr}}
+  .card{position:relative;border:1px solid var(--line);border-radius:18px;padding:30px;background:linear-gradient(180deg,rgba(13,17,32,.85),rgba(8,10,18,.85));
+    transition:.3s;overflow:hidden}
+  .card:hover{transform:translateY(-6px);border-color:var(--c)}
+  .card::before{content:"";position:absolute;inset:0;background:radial-gradient(60% 50% at 50% 0,var(--cg),transparent 70%);opacity:0;transition:.3s}
+  .card:hover::before{opacity:1}
+  .card .num{font-family:'JetBrains Mono';font-size:13px;color:var(--c)}
+  .card h3{font-size:23px;margin:8px 0 10px;color:var(--ink)}
+  .card p{color:var(--mut);font-size:15px}
+  .card .tag{display:inline-block;margin-top:18px;font-family:'JetBrains Mono';font-size:12px;color:var(--c);border:1px solid var(--c);border-radius:8px;padding:5px 11px;opacity:.85}
+  .c-intel{--c:var(--cyan);--cg:rgba(56,189,248,.16)}
+  .c-exec{--c:var(--amber);--cg:rgba(251,191,36,.16)}
+  .c-qa{--c:var(--violet);--cg:rgba(168,85,247,.16)}
+
+  .demo{border:1px solid var(--line);border-radius:20px;background:rgba(10,12,22,.7);padding:34px;backdrop-filter:blur(6px)}
+  .demohead{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:26px}
+  .runbtn{background:var(--grad);color:#0a0a12;border:none;padding:12px 22px;border-radius:11px;font-family:'Sora';font-weight:600;font-size:14px;cursor:pointer;transition:.2s}
+  .runbtn:hover{transform:translateY(-2px);box-shadow:0 10px 34px rgba(56,189,248,.4)}
+  .runbtn:disabled{opacity:.5;cursor:default;transform:none;box-shadow:none}
+  .roundlbl{font-family:'JetBrains Mono';font-size:13px;color:var(--mut)}
+  .bars{display:flex;flex-direction:column;gap:14px}
+  .bar{display:grid;grid-template-columns:130px 1fr 88px;align-items:center;gap:16px}
+  .bar .name{font-family:'JetBrains Mono';font-size:14px;color:var(--mut)}
+  .bar .track{height:30px;background:#0c1020;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative}
+  .bar .fill{height:100%;width:30%;border-radius:7px;transition:width .8s cubic-bezier(.22,1,.36,1);background:var(--bc,var(--cyan));box-shadow:0 0 18px var(--bc,var(--cyan))}
+  .bar .elo{font-family:'JetBrains Mono';font-size:15px;text-align:right;color:var(--ink);font-weight:500;transition:color .3s}
+  .bar.win .name{color:var(--amber)} .bar.win .elo{color:var(--amber)}
+
+  .codewin{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#080a12;box-shadow:0 24px 70px rgba(0,0,0,.5)}
+  .codebar{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line);background:#0b0e1a}
+  .codebar i{width:12px;height:12px;border-radius:50%;display:block}
+  .codebar i:nth-child(1){background:#ff5f57}.codebar i:nth-child(2){background:#febc2e}.codebar i:nth-child(3){background:#28c840}
+  .codebar .ttl{margin-left:10px;font-family:'JetBrains Mono';font-size:12px;color:var(--dim)}
+  .codebar .copy{margin-left:auto;font-family:'JetBrains Mono';font-size:12px;color:var(--mut);border:1px solid var(--line);border-radius:7px;padding:4px 10px;cursor:pointer;transition:.2s}
+  .codebar .copy:hover{color:var(--ink);border-color:var(--cyan)}
+  pre{padding:22px;overflow:auto;font-family:'JetBrains Mono';font-size:13.5px;line-height:1.7}
+  pre .p{color:var(--green)} pre .f{color:var(--mut)} pre .k{color:var(--cyan)} pre .v{color:var(--amber)} pre .w{color:var(--pink)} pre .d{color:var(--dim)}
+
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:860px){.flow{grid-template-columns:1fr}}
+  .phase{border:1px solid var(--line);border-radius:16px;padding:26px;background:rgba(13,17,32,.55)}
+  .phase .ph{font-family:'JetBrains Mono';font-size:12px;color:var(--violet);letter-spacing:.1em}
+  .phase h4{font-family:'Syne';font-size:19px;margin:8px 0 8px}
+  .phase p{font-size:14px;color:var(--mut)}
+
+  .callout{border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.06);border-radius:14px;padding:22px 26px;display:flex;gap:16px;align-items:flex-start}
+  .callout .ic{font-size:22px}
+  .callout p{font-size:14.5px;color:#d8c79b}
+  .callout b{color:var(--amber)}
+
+  footer{border-top:1px solid var(--line);padding:54px 0 90px;margin-top:40px}
+  .foot{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:center}
+  .foot .l{color:var(--dim);font-size:13px}
+  .foot .links{display:flex;gap:22px;font-size:14px;color:var(--mut)}
+  .foot .links a:hover{color:var(--ink)}
+
+  .df{position:fixed;right:18px;bottom:16px;z-index:60;font-family:'JetBrains Mono';font-size:11px;
+    color:var(--dim);border:1px solid var(--line);background:rgba(8,10,18,.7);backdrop-filter:blur(8px);
+    padding:6px 12px;border-radius:999px;transition:.25s;opacity:.6}
+  .df:hover{opacity:1;color:var(--cyan);border-color:var(--cyan);box-shadow:0 0 20px rgba(56,189,248,.3)}
+
+  .reveal{opacity:0;transform:translateY(28px);transition:.7s cubic-bezier(.22,1,.36,1)}
+  .reveal.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="mesh"></div><div class="grain"></div><div class="orb a"></div><div class="orb b"></div>
+
+<nav><div class="wrap">
+  <a class="brand" href="#top"><span class="dots"><i></i><i></i><i></i></span> ops-solver</a>
+  <div class="navlinks">
+    <a href="#teams">Teams</a>
+    <a href="#demo">ELO demo</a>
+    <a href="#code">Run it</a>
+    <a href="#flow">Protocol</a>
+    <a class="ghbtn" href="https://github.com/NAJEMWEHBE/operational-problem-solver" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</div></nav>
+
+<header id="top"><div class="wrap">
+  <span class="eyebrow">open source · MIT · <b>built with Claude Opus 4.8</b></span>
+  <h1>Spin up a <span class="grad-text">team of agents.</span><br/>Ship only the <span class="grad-text">best</span> one.</h1>
+  <p class="lead">A multi-team agentic engine for Claude Code. Parallel worker teams generate competing solutions, a consensus gate filters the unstable ones, and an ELO tournament ranks the survivors head-to-head.</p>
+  <p class="priorart">The pieces are proven research — <b>AlphaCode</b>, <b>self-consistency</b>, <b>LLM-as-judge</b>, <b>Chatbot-Arena Elo</b>. This packages them into one installable Claude Code skill + engine. Novel as an integration, honest about it.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/NAJEMWEHBE/operational-problem-solver" target="_blank" rel="noopener">View on GitHub</a>
+    <a class="btn ghost" href="#demo">See the tournament ↓</a>
+  </div>
+  <div class="chips">
+    <span class="chip"><b>2</b> Intelligence · <b>4</b> Execution · <b>1</b> Judge</span>
+    <span class="chip"><b>50%</b> consensus stability gate</span>
+    <span class="chip"><b>ELO</b> head-to-head ranking</span>
+    <span class="chip"><b>13</b> offline tests passing</span>
+  </div>
+  <figure class="herofig"><img src="assets/hero.svg" alt="Pipeline: Intelligence to Execution to Quality to Winner" /></figure>
+</div></header>
+
+<section id="teams"><div class="wrap">
+  <div class="reveal">
+    <div class="kicker">// three worker teams</div>
+    <h2 class="title">One orchestrator, three crews.</h2>
+    <p class="sectionlead">Each team runs multiple instances in parallel. Workers are isolated so they don't converge on the same idea.</p>
+  </div>
+  <div class="teams">
+    <div class="card c-intel reveal">
+      <div class="num">01 — Crow ×2</div>
+      <h3>Intelligence</h3>
+      <p>Reads the directory, detects language, dependencies and constraints, then merges everything into one shared <em>Context Manifest</em>.</p>
+      <span class="tag">→ context manifest</span>
+    </div>
+    <div class="card c-exec reveal">
+      <div class="num">02 — Finch ×4</div>
+      <h3>Execution</h3>
+      <p>Parallel, isolated workers. Same manifest, a different strategy each — simplest, fastest, most robust, cleanest. One standalone solution apiece.</p>
+      <span class="tag">→ N candidate solutions</span>
+    </div>
+    <div class="card c-qa reveal">
+      <div class="num">03 — Consensus + ELO</div>
+      <h3>Quality Assurance</h3>
+      <p>Layer 1 gates on a 50% stability threshold (syntax, lint, optional tests). Layer 2 runs the ELO tournament and ships the winner.</p>
+      <span class="tag">→ ranked leaderboard</span>
+    </div>
+  </div>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <div class="reveal">
+    <div class="kicker">// quality assurance · layer 2</div>
+    <h2 class="title">The ELO tournament, live.</h2>
+    <p class="sectionlead">Survivors are judged pairwise by Opus. Each match updates ELO (K=32, start 1000), blended with objective lint/test scores. Hit run.</p>
+  </div>
+  <div class="demo reveal">
+    <div class="demohead">
+      <button class="runbtn" id="run">▶ Run tournament</button>
+      <span class="roundlbl" id="round">idle · 4 competitors, round-robin</span>
+    </div>
+    <div class="bars" id="bars"></div>
+  </div>
+</div></section>
+
+<section id="code"><div class="wrap">
+  <div class="reveal">
+    <div class="kicker">// one command</div>
+    <h2 class="title">Run it from your shell.</h2>
+    <p class="sectionlead">Install the engine, point it at a problem, read the leaderboard. The skill calls this for you inside Claude Code.</p>
+  </div>
+  <div class="codewin reveal">
+    <div class="codebar"><i></i><i></i><i></i><span class="ttl mono">ops-solve</span><span class="copy mono" id="copy">copy</span></div>
+    <pre id="snippet"><span class="d">$</span> <span class="k">ops-solve</span> <span class="v">"solve: write a Python is_prime(n) with tests"</span> <span class="k">--workers</span> 4 <span class="k">--test-cmd</span> <span class="v">"pytest -q"</span>
+
+<span class="f">Context Manifest (Intelligence)</span>  language=python · constraints: handle n&lt;2, even numbers
+<span class="f">QA Layer 1 — consensus</span>           4/4 stable  <span class="p">(met)</span>
+
+<span class="f">QA Layer 2 — ELO leaderboard</span>
+  #  worker      ELO   W-L-D   final
+  <span class="w">1  Finch-03   1064   3-0-0   0.94  ★ WINNER</span>
+  2  Finch-01   1012   2-1-0   0.71
+  3  Finch-04    978   1-2-0   0.55
+  4  Finch-02    946   0-3-0   0.38
+
+<span class="f">winner</span> → runs/run-…/WINNER/solution.py     <span class="d">calls: 11 · est. $0.04</span></pre>
+  </div>
+</div></section>
+
+<section id="flow"><div class="wrap">
+  <div class="reveal">
+    <div class="kicker">// execution protocol</div>
+    <h2 class="title">Phase I → II → III.</h2>
+    <p class="sectionlead">If fewer than half the workers produce stable output, the engine mutates the prompts and re-loops Execution before judging.</p>
+  </div>
+  <div class="flow">
+    <div class="phase reveal"><div class="ph">PHASE I</div><h4>Audit</h4><p>Intelligence team probes the environment and builds the shared Context Manifest.</p></div>
+    <div class="phase reveal"><div class="ph">PHASE II</div><h4>Generate</h4><p>Execution workers produce diverse standalone solutions in parallel, each isolated.</p></div>
+    <div class="phase reveal"><div class="ph">PHASE III</div><h4>Judge &amp; ship</h4><p>Consensus gate → ELO tournament → the highest-rated solution is written out.</p></div>
+  </div>
+  <div style="height:26px"></div>
+  <div class="callout reveal">
+    <span class="ic">⚡</span>
+    <p><b>Honest about cost.</b> Every worker and the judge are metered Claude API calls — roughly 8–12 per run by default. Prompt caching, a <code>--cheap</code> Haiku tier, and fewer workers keep it down. The engine prints an estimated dollar cost every run. The offline test suite runs the ELO and consensus logic with a mocked model — zero API spend.</p>
+  </div>
+</div></section>
+
+<footer><div class="wrap foot">
+  <div class="l">MIT · built with Claude Opus 4.8 · © 2026 NAJEMWEHBE</div>
+  <div class="links">
+    <a href="https://github.com/NAJEMWEHBE/operational-problem-solver" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/NAJEMWEHBE/operational-problem-solver/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+    <a href="https://github.com/NAJEMWEHBE/operational-problem-solver/blob/main/.claude/skills/problem-solver/SKILL.md" target="_blank" rel="noopener">Skill</a>
+  </div>
+</div></footer>
+
+<a class="df" href="https://deerflow.tech" target="_blank" rel="noopener" title="Created by Deerflow">✦ Deerflow</a>
+
+<script>
+const io = new IntersectionObserver((entries) => {
+  entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+}, { threshold: 0.15 });
+document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+const copyBtn = document.getElementById('copy');
+copyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText('ops-solve "solve: write a Python is_prime(n) with tests" --workers 4 --test-cmd "pytest -q"');
+  copyBtn.textContent = 'copied ✓';
+  setTimeout(() => { copyBtn.textContent = 'copy'; }, 1500);
+});
+
+// ELO tournament demo — DOM nodes built once (no innerHTML), then updated.
+const COMP = [
+  { id: 'Finch-03', color: 'var(--amber)',  skill: 4, elo: 1000 },
+  { id: 'Finch-01', color: 'var(--cyan)',    skill: 3, elo: 1000 },
+  { id: 'Finch-04', color: 'var(--violet)',  skill: 2, elo: 1000 },
+  { id: 'Finch-02', color: 'var(--pink)',    skill: 1, elo: 1000 },
+];
+const barsEl = document.getElementById('bars');
+const rows = COMP.map((c) => {
+  const bar = document.createElement('div'); bar.className = 'bar';
+  const name = document.createElement('span'); name.className = 'name'; name.textContent = c.id;
+  const track = document.createElement('div'); track.className = 'track';
+  const fill = document.createElement('div'); fill.className = 'fill'; fill.style.setProperty('--bc', c.color); fill.style.width = '30%';
+  track.appendChild(fill);
+  const elo = document.createElement('span'); elo.className = 'elo'; elo.textContent = '1000';
+  bar.append(name, track, elo);
+  barsEl.appendChild(bar);
+  return { c, bar, name, fill, elo };
+});
+function update() {
+  const vals = COMP.map((c) => c.elo);
+  const max = Math.max(...vals), min = Math.min(...vals), top = max;
+  rows.forEach((r) => {
+    const pct = 30 + ((r.c.elo - min) / ((max - min) || 1)) * 70;
+    r.fill.style.width = pct + '%';
+    r.elo.textContent = String(Math.round(r.c.elo));
+    const win = r.c.elo === top && top !== 1000;
+    r.bar.classList.toggle('win', win);
+    r.name.textContent = (win ? '★ ' : '') + r.c.id;
+  });
+}
+function expected(a, b) { return 1 / (1 + Math.pow(10, (b - a) / 400)); }
+let running = false;
+const runBtn = document.getElementById('run');
+const lbl = document.getElementById('round');
+runBtn.addEventListener('click', async () => {
+  if (running) return; running = true;
+  runBtn.disabled = true; runBtn.textContent = 'running…';
+  COMP.forEach((c) => { c.elo = 1000; }); update();
+  const pairs = [];
+  for (let i = 0; i < COMP.length; i++) for (let j = i + 1; j < COMP.length; j++) pairs.push([COMP[i], COMP[j]]);
+  for (let r = 0; r < pairs.length; r++) {
+    const a = pairs[r][0], b = pairs[r][1];
+    lbl.textContent = 'match ' + (r + 1) + '/' + pairs.length + ' · ' + a.id + ' vs ' + b.id;
+    const sa = a.skill > b.skill ? 1 : (a.skill < b.skill ? 0 : 0.5);
+    const ea = expected(a.elo, b.elo), K = 32;
+    a.elo += K * (sa - ea); b.elo += K * ((1 - sa) - (1 - ea));
+    update();
+    await new Promise((res) => setTimeout(res, 650));
+  }
+  lbl.textContent = 'complete · winner crowned';
+  runBtn.disabled = false; runBtn.textContent = '▶ Run again'; running = false;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 440" width="1280" height="440" role="img" aria-label="operational-problem-solver: parallel worker teams, consensus gate, ELO tournament">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0c16"/>
+      <stop offset="1" stop-color="#05060d"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="0.5" stop-color="#a855f7"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <linearGradient id="winGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <radialGradient id="blobC" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blobV" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#a855f7" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#a855f7" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#1b2236" stroke-width="1"/>
+    </pattern>
+    <style>
+      .wm{font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-weight:800;}
+      .sub{font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-weight:500;}
+      .lbl{font-family:'Segoe UI',Helvetica,Arial,sans-serif;font-weight:700;}
+      .cap{font-family:'Consolas','SF Mono',monospace;font-weight:500;}
+    </style>
+  </defs>
+
+  <rect width="1280" height="440" fill="url(#bg)"/>
+  <rect width="1280" height="440" fill="url(#grid)" opacity="0.5"/>
+  <circle cx="220" cy="120" r="320" fill="url(#blobC)"/>
+  <circle cx="1080" cy="360" r="340" fill="url(#blobV)"/>
+
+  <!-- wordmark -->
+  <text x="640" y="96" text-anchor="middle" class="wm" font-size="58" fill="url(#accent)" letter-spacing="-1">operational-problem-solver</text>
+  <text x="640" y="138" text-anchor="middle" class="sub" font-size="20" fill="#8ea2c4">parallel worker teams · consensus gate · ELO tournament → the single best solution</text>
+
+  <!-- pipeline -->
+  <g class="lbl" font-size="20">
+    <!-- connecting arrows -->
+    <g stroke="url(#accent)" stroke-width="3" fill="none" opacity="0.9">
+      <path d="M280 305 L375 305"/>
+      <path d="M570 305 L665 305"/>
+      <path d="M860 305 L965 305"/>
+      <g fill="#a855f7" stroke="none">
+        <path d="M375 305 l-12 -6 v12 z"/><path d="M665 305 l-12 -6 v12 z"/><path d="M965 305 l-12 -6 v12 z"/>
+      </g>
+      <line x1="280" y1="305" x2="375" y2="305" stroke="#38bdf8" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round" opacity="0.9">
+        <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1.1s" repeatCount="indefinite"/>
+      </line>
+      <line x1="570" y1="305" x2="665" y2="305" stroke="#fbbf24" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round" opacity="0.9">
+        <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1.1s" repeatCount="indefinite"/>
+      </line>
+      <line x1="860" y1="305" x2="965" y2="305" stroke="#a855f7" stroke-width="3" stroke-dasharray="6 10" stroke-linecap="round" opacity="0.9">
+        <animate attributeName="stroke-dashoffset" from="32" to="0" dur="1.1s" repeatCount="indefinite"/>
+      </line>
+    </g>
+
+    <!-- Intelligence -->
+    <g filter="url(#glow)">
+      <rect x="90" y="250" width="190" height="110" rx="16" fill="#0c1322" stroke="#38bdf8" stroke-width="2"/>
+    </g>
+    <circle cx="120" cy="280" r="6" fill="#38bdf8"><animate attributeName="opacity" values="1;0.35;1" dur="2.4s" repeatCount="indefinite"/></circle>
+    <text x="185" y="300" text-anchor="middle" fill="#e8eefb">Intelligence</text>
+    <text x="185" y="328" text-anchor="middle" class="cap" font-size="14" fill="#7f93b6">Crow ×2 → manifest</text>
+
+    <!-- Execution -->
+    <g filter="url(#glow)">
+      <rect x="380" y="250" width="190" height="110" rx="16" fill="#13110a" stroke="#fbbf24" stroke-width="2"/>
+    </g>
+    <circle cx="410" cy="280" r="6" fill="#fbbf24"><animate attributeName="opacity" values="1;0.35;1" dur="2.4s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <text x="475" y="300" text-anchor="middle" fill="#fdf3da">Execution</text>
+    <text x="475" y="328" text-anchor="middle" class="cap" font-size="14" fill="#b79a5e">Finch ×4 → solutions</text>
+
+    <!-- QA -->
+    <g filter="url(#glow)">
+      <rect x="670" y="250" width="190" height="110" rx="16" fill="#150c1f" stroke="#a855f7" stroke-width="2"/>
+    </g>
+    <circle cx="700" cy="280" r="6" fill="#a855f7"><animate attributeName="opacity" values="1;0.35;1" dur="2.4s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <text x="765" y="300" text-anchor="middle" fill="#f3e8ff">Quality</text>
+    <text x="765" y="328" text-anchor="middle" class="cap" font-size="14" fill="#b08fd6">consensus + ELO</text>
+
+    <!-- Winner -->
+    <g filter="url(#glow)">
+      <rect x="970" y="250" width="220" height="110" rx="16" fill="#160d12" stroke="url(#winGrad)" stroke-width="2.5"/>
+    </g>
+    <text x="1080" y="300" text-anchor="middle" fill="url(#winGrad)" font-size="22">★ Winner</text>
+    <text x="1080" y="328" text-anchor="middle" class="cap" font-size="14" fill="#d8a9b6">shipped · ELO 1247</text>
+  </g>
+</svg>
