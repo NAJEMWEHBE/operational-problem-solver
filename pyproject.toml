@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops-solver"
+version = "0.1.0"
+description = "Multi-team agentic engine: parallel research + execution workers, consensus stability gate, and an ELO tournament that ships the single best solution."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Najm Wahba", email = "najmwahba.98@gmail.com" }]
+keywords = ["claude", "anthropic", "agents", "elo", "tournament", "consensus", "code-generation"]
+dependencies = [
+    "anthropic>=0.49",
+    "pydantic>=2.5",
+    "rich>=13.0",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5"]
+fast = ["anthropic[aiohttp]>=0.49"]
+
+[project.scripts]
+ops-solve = "ops_solver.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/NAJEMWEHBE/operational-problem-solver"
+Repository = "https://github.com/NAJEMWEHBE/operational-problem-solver"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
