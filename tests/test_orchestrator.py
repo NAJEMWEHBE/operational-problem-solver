@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from ops_solver.config import RunConfig
 from ops_solver.llm import TokenLedger
 from ops_solver.models import JudgeVerdict, ManifestDraft
@@ -71,3 +73,55 @@ async def test_solve_handles_single_worker(tmp_path: Path):
     # One worker: no pairwise matches, but it still wins by default.
     assert len(report.artifacts) == 1
     assert report.winner_id == "Finch-01"
+
+
+class FlakyLLM(MockLLM):
+    """Broken Python on the first Phase-II attempt, valid on the second."""
+
+    def __init__(self, workers: int) -> None:
+        super().__init__()
+        self._workers = workers
+
+    async def complete(self, *, model, system, user, max_tokens=4096, temperature=None, thinking=False):
+        self._n += 1
+        if self._n <= self._workers:  # first `workers` complete() calls == attempt 0
+            return "```python\ndef f(:\n    pass\n```"  # syntax error
+        return "```python\ndef f():\n    return 1\n```"
+
+
+class EmptyWorkerLLM(MockLLM):
+    async def complete(self, *, model, system, user, max_tokens=4096, temperature=None, thinking=False):
+        return ""  # every worker yields nothing
+
+
+class DeadIntelLLM(MockLLM):
+    async def structured(self, *, model, system, user, schema, max_tokens=1500, temperature=None, thinking=False):
+        return None  # every Crow fails
+
+
+async def test_consensus_reloop_then_succeeds(tmp_path: Path):
+    cfg = RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=1, exec_workers=2, max_reloops=1, lint=False,
+    )
+    report = await solve(cfg, llm=FlakyLLM(workers=2))
+    assert report.attempts == 2          # re-looped after <50% stable on attempt 0
+    assert report.consensus_met is True  # second attempt stabilized
+
+
+async def test_all_workers_fail_raises_actionable_error(tmp_path: Path):
+    cfg = RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=1, exec_workers=2, max_reloops=0, lint=False,
+    )
+    with pytest.raises(RuntimeError, match="Execution phase produced 0"):
+        await solve(cfg, llm=EmptyWorkerLLM())
+
+
+async def test_all_intelligence_fail_raises_actionable_error(tmp_path: Path):
+    cfg = RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=2, exec_workers=2, max_reloops=0, lint=False,
+    )
+    with pytest.raises(RuntimeError, match="Intelligence phase produced 0"):
+        await solve(cfg, llm=DeadIntelLLM())

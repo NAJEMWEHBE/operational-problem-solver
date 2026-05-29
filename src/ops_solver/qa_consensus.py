@@ -58,7 +58,9 @@ def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
             score = 1.0 if ok else max(0.0, 1.0 - 0.05 * issues)
             return True, ok, score, (proc.stdout or proc.stderr)[:500]
         except (subprocess.SubprocessError, OSError) as exc:
-            return False, True, 1.0, f"linter error: {exc}"
+            # linter present but crashed: don't award full credit (would beat a
+            # file that merely had lint warnings); mark it ran-but-failed.
+            return True, False, 0.5, f"linter error: {exc}"
     return False, True, 1.0, "no linter available for this language"
 
 
@@ -87,10 +89,9 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
 def evaluate(artifact: WorkerArtifact, cfg: RunConfig) -> EvalResult:
     start = time.monotonic()
     syntax_ok = _syntax_check(artifact)
+    syntax_checked = artifact.language.lower() in ("python", "py")
 
-    lint_ran = lint_ok = False
-    lint_score = 1.0
-    lint_summary = ""
+    lint_ran, lint_ok, lint_score, lint_summary = False, True, 1.0, ""
     if cfg.lint:
         lint_ran, lint_ok, lint_score, lint_summary = _run_linter(artifact)
 
@@ -106,6 +107,7 @@ def evaluate(artifact: WorkerArtifact, cfg: RunConfig) -> EvalResult:
         worker_id=artifact.worker_id,
         stable=stable,
         syntax_ok=syntax_ok,
+        syntax_checked=syntax_checked,
         lint_ran=lint_ran,
         lint_ok=lint_ok,
         lint_score=round(lint_score, 3),

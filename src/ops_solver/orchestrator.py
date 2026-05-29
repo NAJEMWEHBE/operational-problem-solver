@@ -8,6 +8,7 @@ bumped, failure feedback injected) and Phase II re-runs, up to `max_reloops`.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import time
 from pathlib import Path
@@ -16,6 +17,8 @@ from . import elo, env_probe, execution, intelligence, qa_consensus
 from .config import RunConfig
 from .llm import LLM, TokenLedger
 from .models import RunReport
+
+logger = logging.getLogger("ops_solver.orchestrator")
 
 
 async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
@@ -56,6 +59,20 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
             for e in fails
         )[:400]
 
+    warnings: list[str] = []
+    if len(artifacts) < cfg.exec_workers:
+        warnings.append(
+            f"{cfg.exec_workers - len(artifacts)}/{cfg.exec_workers} execution workers "
+            f"produced no usable solution"
+        )
+        logger.warning(warnings[-1])
+    if not artifacts:
+        raise RuntimeError(
+            f"Execution phase produced 0 solutions out of {cfg.exec_workers} workers "
+            f"({cfg.worker_model}) after {attempts} attempt(s). All workers failed or "
+            f"returned empty output - check ANTHROPIC_API_KEY and rate limits."
+        )
+
     # Phase III — ELO tournament over the stable survivors (or all, if none stable)
     competing = [a for a in artifacts if a.worker_id in stable_ids] or artifacts
     eval_by_id = {e.worker_id: e for e in evals}
@@ -65,6 +82,12 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         if a.worker_id in eval_by_id
     }
     leaderboard = await elo.run_tournament(llm, cfg, competing, manifest, objective)
+    if len(competing) >= 2 and not leaderboard.matches:
+        warnings.append(
+            "0 judge matches completed - every pairwise judging call failed; ranking "
+            "fell back to objective score / sort order, not head-to-head ELO."
+        )
+        logger.warning(warnings[-1])
 
     # Ship the winner
     winner_id = leaderboard.winner
@@ -78,8 +101,15 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
             shutil.copytree(win_art.workspace, dest)
             winner_path = str(dest)
             if cfg.out_path is not None:
-                cfg.out_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(Path(win_art.workspace) / win_art.filename, cfg.out_path)
+                out_dest = cfg.out_path.resolve()
+                if out_dest.exists() and not cfg.force:
+                    warnings.append(
+                        f"--out target exists, not overwritten (use --force): {out_dest}"
+                    )
+                    logger.warning(warnings[-1])
+                else:
+                    out_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(Path(win_art.workspace) / win_art.filename, out_dest)
 
     report = RunReport(
         run_id=run_id,
@@ -95,6 +125,7 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         consensus_met=met,
         cost_usd=round(ledger.cost_usd(), 4),
         tokens=ledger.summary(),
+        warnings=warnings,
     )
     (run_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return report

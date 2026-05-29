@@ -20,16 +20,23 @@ app = typer.Typer(add_completion=False, help="Multi-team consensus + ELO problem
 console = Console()
 
 
+_DOTENV_ALLOWED = {"ANTHROPIC_API_KEY", "ANTHROPIC_LOG", "ANTHROPIC_BASE_URL"}
+
+
 def _load_dotenv(cwd: Path) -> None:
-    """Minimal .env loader so ANTHROPIC_API_KEY is picked up without extra deps."""
+    """Minimal .env loader: only an allow-list of keys we use, so a stray .env in
+    the working directory can't inject arbitrary environment variables."""
     env = cwd / ".env"
     if not env.exists() or os.environ.get("ANTHROPIC_API_KEY"):
         return
     for line in env.read_text(encoding="utf-8", errors="ignore").splitlines():
         line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, val = line.partition("=")
-            os.environ.setdefault(key.strip(), val.strip())
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if key in _DOTENV_ALLOWED:
+            os.environ.setdefault(key, val.strip().strip('"').strip("'"))
 
 
 def _render(report: RunReport) -> None:
@@ -53,17 +60,21 @@ def _render(report: RunReport) -> None:
         ev.add_row(
             e.worker_id,
             (strat.get(e.worker_id, "")[:28]),
-            "[green]ok[/]" if e.syntax_ok else "[red]fail[/]",
+            ("[green]ok[/]" if e.syntax_ok else "[red]fail[/]") if e.syntax_checked else "[dim]n/a[/]",
             ("[green]ok[/]" if e.lint_ok else "[red]issues[/]") if e.lint_ran else "-",
             ("[green]pass[/]" if e.tests_passed else "[red]fail[/]") if e.tests_ran else "-",
             "[green]yes[/]" if e.stable else "[red]no[/]",
             str(e.size_bytes),
         )
     console.print(ev)
+    verified = any(e.tests_ran for e in report.evals)
     console.print(
         f"Consensus: {report.consensus_ratio:.0%} stable "
         f"({'met' if report.consensus_met else 'NOT met'}); attempts={report.attempts}"
+        + ("" if verified else "  [dim](syntax-only - pass --test-cmd to verify behaviour)[/]")
     )
+    for w in report.warnings:
+        console.print(f"[yellow]! {w}[/]")
 
     lb = Table(title="QA Layer 2 — ELO tournament leaderboard", border_style="magenta")
     for col in ("#", "Worker", "ELO", "W-L-D", "Objective", "Final"):
@@ -103,16 +114,19 @@ def main(
         None, "--test-cmd", help="Shell command to test each solution (EXECUTES generated code)."
     ),
     out: Optional[Path] = typer.Option(None, "--out", help="Write the winning solution file here."),
+    force: bool = typer.Option(False, "--force", help="Allow --out to overwrite an existing file."),
     cheap: bool = typer.Option(False, "--cheap", help="Use Haiku workers (cheaper, less diverse)."),
     lang: str = typer.Option("auto", "--lang", help="Force a language instead of auto-detect."),
+    debug: bool = typer.Option(False, "--debug", help="Re-raise full tracebacks instead of a clean message."),
 ) -> None:
     """Solve a problem with parallel workers, a consensus gate, and an ELO tournament."""
     cwd = Path.cwd()
     _load_dotenv(cwd)
     if not os.environ.get("ANTHROPIC_API_KEY"):
+        hint = " (found a .env, but it did not define ANTHROPIC_API_KEY)" if (cwd / ".env").exists() else ""
         console.print(
-            "[red]ANTHROPIC_API_KEY is not set.[/] Copy .env.example to .env and add your key, "
-            "or export ANTHROPIC_API_KEY. (This is a paid, metered key.)"
+            f"[red]ANTHROPIC_API_KEY is not set.[/]{hint} Copy .env.example to .env and add your key, "
+            "or set ANTHROPIC_API_KEY in your environment. (This is a paid, metered key.)"
         )
         raise typer.Exit(code=2)
 
@@ -130,6 +144,7 @@ def main(
         max_reloops=max(0, reloops),
         test_cmd=test_cmd,
         out_path=out,
+        force=force,
     )
     if cheap:
         cfg.worker_model = CHEAP_WORKER_MODEL
@@ -146,6 +161,8 @@ def main(
     try:
         report = asyncio.run(solve(cfg))
     except Exception as exc:  # surface a clean message instead of a traceback wall
+        if debug:
+            raise
         console.print(f"[red]Run failed:[/] {type(exc).__name__}: {exc}")
         raise typer.Exit(code=1) from exc
 

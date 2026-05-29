@@ -72,6 +72,8 @@ class EloEngine:
     ) -> Leaderboard:
         objective = objective or {}
         ids = list(self.ratings)
+        if not ids:
+            return Leaderboard(entries=[], winner=None)
         vals = list(self.ratings.values())
         lo, hi = min(vals), max(vals)
         span = hi - lo
