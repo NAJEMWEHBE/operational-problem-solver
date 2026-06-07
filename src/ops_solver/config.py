@@ -70,6 +70,8 @@ class RunConfig:
     k_factor: float = 32.0
     elo_start: float = 1000.0
     blend_elo: float = 0.6            # final = blend*elo_norm + (1-blend)*objective
+    judge_both_orders: bool = True    # judge each pair in both A/B orders + average ->
+    #                                   cancels the judge's position bias (one extra call/pair)
 
     # QA Layer 1
     test_cmd: str | None = None       # set => runs generated code (opt-in, see README)

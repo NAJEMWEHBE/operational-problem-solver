@@ -178,9 +178,24 @@ async def run_tournament(
         )
         if verdict is None:
             return None
-        return MatchResult(
-            a=a_id, b=b_id, score_a=_score_from_verdict(verdict), verdict=verdict
-        )
+        score_a = _score_from_verdict(verdict)
+        # Position-bias control (the #1 noise source in pairwise LLM judging): re-judge
+        # with the sides swapped and average the two scores. A judge that systematically
+        # favours whichever solution is shown first now cancels itself out -- when the two
+        # orderings disagree, the match collapses toward a 0.5 tie instead of being
+        # decided by presentation order. Costs one extra call per pair; opt out with
+        # cfg.judge_both_orders = False.
+        if getattr(cfg, "judge_both_orders", True):
+            rev = await llm.judge(
+                model=cfg.judge_model,
+                system=system,
+                user=_pair_user_prompt(by_id[b_id], by_id[a_id]),
+                max_tokens=cfg.judge_max_tokens,
+            )
+            if rev is not None:
+                # in the swapped call a_id is shown as "B", so a's score is 1 - verdict
+                score_a = (score_a + (1.0 - _score_from_verdict(rev))) / 2.0
+        return MatchResult(a=a_id, b=b_id, score_a=score_a, verdict=verdict)
 
     results = await fan_out([lambda p=p: judge_one(p) for p in pairs])
 
