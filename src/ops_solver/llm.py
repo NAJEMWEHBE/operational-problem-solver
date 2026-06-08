@@ -117,19 +117,18 @@ def _extract_json(text: str) -> dict | None:
                 return json.loads(block)
             except json.JSONDecodeError:
                 pass
+    # Scan from each '{' with the real JSON parser, which respects string literals.
+    # The old hand-rolled brace counter counted '{'/'}' inside string VALUES too, so a
+    # value like "use a } here" made depth hit 0 at the wrong brace and dropped valid JSON.
+    decoder = json.JSONDecoder()
     start = text.find("{")
     while start != -1:
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start : i + 1])
-                    except json.JSONDecodeError:
-                        break
+        try:
+            obj, _ = decoder.raw_decode(text, start)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
         start = text.find("{", start + 1)
     return None
 
