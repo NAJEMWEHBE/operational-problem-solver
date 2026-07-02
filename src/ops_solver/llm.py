@@ -117,19 +117,17 @@ def _extract_json(text: str) -> dict | None:
                 return json.loads(block)
             except json.JSONDecodeError:
                 pass
+    # raw_decode is string-literal-aware: braces inside JSON string values
+    # (e.g. a judge's free-form `reason`) don't derail the scan.
+    dec = json.JSONDecoder()
     start = text.find("{")
     while start != -1:
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start : i + 1])
-                    except json.JSONDecodeError:
-                        break
+        try:
+            obj, _ = dec.raw_decode(text, start)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
         start = text.find("{", start + 1)
     return None
 
