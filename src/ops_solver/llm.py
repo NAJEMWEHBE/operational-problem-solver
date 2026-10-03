@@ -73,9 +73,17 @@ class TokenLedger:
 # --- Concurrency ----------------------------------------------------------
 
 
-async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> list[Any]:
-    """Run async thunks; warm the shared cache by awaiting the first, then
-    fan the rest out concurrently. Failures become `None` (aligned to input)."""
+async def fan_out(
+    thunks: list[Callable[[], Awaitable[Any]]], limit: int = 8
+) -> list[Any]:
+    """Run async thunks; warm the shared cache by awaiting the first, then fan the
+    rest out concurrently, capped at `limit` in-flight. Failures become `None`
+    (aligned to input).
+
+    The cap matters: judge pairings scale as C(workers,2)*rounds, so a large run
+    (e.g. --workers 8 --rounds 3 = 84) would otherwise fire as one synchronized burst,
+    exhaust the SDK retries under a rate limit, and silently drop matches -> biased ELO.
+    """
     if not thunks:
         return []
     out: list[Any] = []
@@ -84,7 +92,15 @@ async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> list[Any]:
     except Exception:
         out.append(None)
     if len(thunks) > 1:
-        rest = await asyncio.gather(*(t() for t in thunks[1:]), return_exceptions=True)
+        sem = asyncio.Semaphore(max(1, limit))
+
+        async def _guarded(t: Callable[[], Awaitable[Any]]) -> Any:
+            async with sem:
+                return await t()
+
+        rest = await asyncio.gather(
+            *(_guarded(t) for t in thunks[1:]), return_exceptions=True
+        )
         out.extend(None if isinstance(r, Exception) else r for r in rest)
     return out
 
