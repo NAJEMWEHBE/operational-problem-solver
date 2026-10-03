@@ -7,6 +7,8 @@ the pure engine to an async LLM judge.
 
 from __future__ import annotations
 
+import asyncio
+
 from .config import RunConfig
 from .models import (
     ContextManifest,
@@ -168,19 +170,34 @@ async def run_tournament(
     pairs = pairings(ids, cfg.elo_rounds)
     system = _judge_system_blocks(manifest)
 
-    async def judge_one(pair: tuple[str, str]) -> MatchResult | None:
-        a_id, b_id = pair
-        verdict = await llm.judge(
+    def _ask(x_id: str, y_id: str):
+        return llm.judge(
             model=cfg.judge_model,
             system=system,
-            user=_pair_user_prompt(by_id[a_id], by_id[b_id]),
+            user=_pair_user_prompt(by_id[x_id], by_id[y_id]),
             max_tokens=cfg.judge_max_tokens,
         )
-        if verdict is None:
+
+    async def judge_one(pair: tuple[str, str]) -> MatchResult | None:
+        a_id, b_id = pair
+        if not cfg.judge_both_orders:
+            verdict = await _ask(a_id, b_id)
+            if verdict is None:
+                return None
+            return MatchResult(a=a_id, b=b_id, score_a=_score_from_verdict(verdict), verdict=verdict)
+        # Position-bias control (the #1 noise source in pairwise LLM judging): judge the
+        # pair in BOTH orders concurrently and average. A judge that systematically favours
+        # whichever solution is shown first cancels itself out -- when the two orderings
+        # disagree, the match collapses toward a 0.5 tie instead of being decided by
+        # presentation order. Opt out with cfg.judge_both_orders = False.
+        fwd, rev = await asyncio.gather(_ask(a_id, b_id), _ask(b_id, a_id))
+        if fwd is None:
             return None
-        return MatchResult(
-            a=a_id, b=b_id, score_a=_score_from_verdict(verdict), verdict=verdict
-        )
+        score_a = _score_from_verdict(fwd)
+        if rev is not None:
+            # in the swapped call a_id is shown as "B", so a's score is 1 - verdict
+            score_a = (score_a + (1.0 - _score_from_verdict(rev))) / 2.0
+        return MatchResult(a=a_id, b=b_id, score_a=score_a, verdict=fwd)
 
     results = await fan_out([lambda p=p: judge_one(p) for p in pairs])
 
