@@ -240,7 +240,7 @@
   </div>
   <div class="codewin reveal">
     <div class="codebar"><i></i><i></i><i></i><span class="ttl mono">ops-solve</span><span class="copy mono" id="copy">copy</span></div>
-    <pre id="snippet"><span class="d">$</span> <span class="k">ops-solve</span> <span class="v">"solve: write a Python is_prime(n) with tests"</span> <span class="k">--workers</span> 4 <span class="k">--test-cmd</span> <span class="v">"pytest -q"</span>
+    <pre id="snippet"><span class="d">$</span> <span class="k">ops-solve</span> <span class="v">"solve: write a Python is_prime(n) with tests"</span> <span class="k">--workers</span> 4 <span class="k">--test-cmd</span> <span class="v">"pytest -q {file}"</span>
 
 <span class="f">Context Manifest (Intelligence)</span>  language=python · constraints: handle n&lt;2, even numbers
 <span class="f">QA Layer 1 — consensus</span>           4/4 stable  <span class="p">(met)</span>
@@ -293,7 +293,7 @@ document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
 
 const copyBtn = document.getElementById('copy');
 copyBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText('ops-solve "solve: write a Python is_prime(n) with tests" --workers 4 --test-cmd "pytest -q"');
+  navigator.clipboard.writeText('ops-solve "solve: write a Python is_prime(n) with tests" --workers 4 --test-cmd "pytest -q {file}"');
   copyBtn.textContent = 'copied ✓';
   setTimeout(() => { copyBtn.textContent = 'copy'; }, 1500);
 });

@@ -113,7 +113,10 @@ def main(
     rounds: int = typer.Option(1, "--rounds", "-r", help="ELO tournament round-robin passes."),
     reloops: int = typer.Option(1, "--reloops", help="Max consensus re-loops."),
     test_cmd: str | None = typer.Option(
-        None, "--test-cmd", help="Shell command to test each solution (EXECUTES generated code)."
+        None,
+        "--test-cmd",
+        help="Shell command run in each worker's folder to test its solution; {file} is "
+        'replaced with the solution file name, e.g. "pytest -q {file}" (EXECUTES generated code).',
     ),
     out: Path | None = typer.Option(None, "--out", help="Write the winning solution file here."),
     force: bool = typer.Option(False, "--force", help="Allow --out to overwrite an existing file."),

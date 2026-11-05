@@ -18,7 +18,7 @@ cd "F:\ai\problem solver"
 # ANTHROPIC_API_KEY is in .env (gitignored). Then:
 ops-solve "solve: <problem>" --workers 4 --intel 2
 #   --cheap        Haiku workers (cheapest)
-#   --test-cmd "pytest -q"   gate consensus on real tests (EXECUTES generated code)
+#   --test-cmd "pytest -q {file}"   gate consensus on real tests (EXECUTES generated code)
 #   --out <path>   write winner file there   (--force to overwrite)
 ```
 Offline logic tests (no API spend): `pytest -q`.

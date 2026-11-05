@@ -49,7 +49,8 @@ in code:
 
 ```bash
 ops-solve "solve: <the problem>" --workers 4 --intel 2
-# add --test-cmd "pytest -q" to gate consensus on real tests (executes code)
+# add --test-cmd "pytest -q {file}" to gate consensus on real tests (executes code;
+#   {file} is the solution file name, the command runs in each worker's folder)
 # add --cheap to use Haiku workers; --out path/to/file to write the winner
 ```
 

@@ -1,4 +1,7 @@
-"""QA Layer 1 consensus gate + objective scoring. Offline (lint/tests disabled)."""
+"""QA Layer 1 consensus gate + objective scoring. Offline; the --test-cmd tests
+run tiny local Python commands."""
+
+import sys
 
 from ops_solver.config import RunConfig
 from ops_solver.models import EvalResult, WorkerArtifact
@@ -64,3 +67,24 @@ def test_objective_score_rewards_passing_tests():
         worker_id="c", stable=False, syntax_ok=True, tests_ran=True, tests_passed=False, lint_score=1.0
     )
     assert objective_score(passing) > objective_score(not_run) > objective_score(failing)
+
+
+# --- --test-cmd runs in the worker folder (executes code; local, tiny) -------
+
+PY = f'"{sys.executable}"'
+
+
+def _artifact(ws, code: str) -> WorkerArtifact:
+    (ws / "solution.py").write_text(code, encoding="utf-8")
+    return WorkerArtifact(
+        worker_id="Finch-01", strategy="s", language="python",
+        filename="solution.py", code=code, workspace=str(ws),
+    )
+
+
+def test_test_cmd_file_placeholder_points_pytest_at_the_solution(tmp_path):
+    code = "def add(a, b):\n    return a + b\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"
+    art = _artifact(tmp_path, code)
+    res = evaluate(art, _cfg(test_cmd=f"{PY} -m pytest -q -p no:cacheprovider {{file}}"))
+    assert res.tests_ran is True
+    assert res.tests_passed is True, res.test_summary

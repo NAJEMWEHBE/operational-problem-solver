@@ -68,10 +68,15 @@ def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
 def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
     """Run the user-supplied test command in the artifact's workspace.
 
+    The workspace holds only the solution file (e.g. `solution.py`, which pytest
+    does not collect by default), so `{file}` in the command is replaced with
+    that file name: `pytest -q {file}`.
+
     WARNING: this executes the generated code. Opt-in via --test-cmd only."""
+    cmd = test_cmd.replace("{file}", artifact.filename)
     try:
         proc = subprocess.run(
-            test_cmd,
+            cmd,
             shell=True,
             cwd=artifact.workspace,
             capture_output=True,
