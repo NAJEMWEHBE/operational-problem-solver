@@ -12,6 +12,7 @@ runs model-written code, so use it only on solutions you are willing to run.
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 import os
 import signal
@@ -171,6 +172,13 @@ def evaluate(artifact: WorkerArtifact, cfg: RunConfig) -> EvalResult:
         size_bytes=len(artifact.code.encode("utf-8")),
         notes=lint_summary if lint_ran and not lint_ok else "",
     )
+
+
+async def evaluate_all(artifacts: list[WorkerArtifact], cfg: RunConfig) -> list[EvalResult]:
+    """`evaluate` every artifact concurrently in worker threads, so linting and
+    test runs (up to the test timeout each) neither block the event loop nor
+    run one after another. Results keep the input order."""
+    return list(await asyncio.gather(*(asyncio.to_thread(evaluate, a, cfg) for a in artifacts)))
 
 
 def consensus(evals: list[EvalResult], threshold: float) -> tuple[list[str], float, bool]:

@@ -54,7 +54,7 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         artifacts = await execution.run_workers(
             llm, cfg, manifest, run_dir, attempt=attempt, feedback=feedback
         )
-        evals = [qa_consensus.evaluate(a, cfg) for a in artifacts]
+        evals = await qa_consensus.evaluate_all(artifacts, cfg)
         stable_ids, ratio, met = qa_consensus.consensus(evals, cfg.stability_threshold)
         if met or attempt == cfg.max_reloops:
             break
