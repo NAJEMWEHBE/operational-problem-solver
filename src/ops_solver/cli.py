@@ -54,6 +54,20 @@ def _dotenv_value(raw: str) -> str:
     return re.split(r"\s+#", raw, maxsplit=1)[0].strip().strip('"').strip("'")
 
 
+def _has_credentials() -> bool:
+    """True if the SDK will find credentials: ANTHROPIC_API_KEY, or what its own
+    chain resolves (ANTHROPIC_AUTH_TOKEN, a profile from `ant auth login`,
+    workload identity). Never reads or prints a credential value here."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+    try:
+        from anthropic.lib.credentials import default_credentials
+
+        return default_credentials() is not None
+    except Exception:  # noqa: BLE001 - a broken or missing profile means "no usable credentials"
+        return False
+
+
 def _render(report: RunReport) -> None:
     # Every dynamic string (problem text, model-written manifest, paths) goes
     # through escape(): rich would otherwise parse "[red]" as a style or raise
@@ -143,11 +157,12 @@ def main(
     """Solve a problem with parallel workers, a consensus gate, and an ELO tournament."""
     cwd = Path.cwd()
     _load_dotenv(cwd)
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not _has_credentials():
         hint = " (found a .env, but it did not define ANTHROPIC_API_KEY)" if (cwd / ".env").exists() else ""
         console.print(
-            f"[red]ANTHROPIC_API_KEY is not set.[/]{hint} Copy .env.example to .env and add your key, "
-            "or set ANTHROPIC_API_KEY in your environment. (This is a paid, metered key.)"
+            f"[red]ANTHROPIC_API_KEY is not set[/] and no other Anthropic credentials were found."
+            f"{hint} Copy .env.example to .env and add your key, set ANTHROPIC_API_KEY in your "
+            "environment, or sign in with `ant auth login`. (This is a paid, metered key.)"
         )
         raise typer.Exit(code=2)
 
