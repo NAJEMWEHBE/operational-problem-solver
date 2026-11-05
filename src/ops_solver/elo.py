@@ -112,6 +112,14 @@ def _score_from_verdict(verdict: JudgeVerdict) -> float:
     return 0.5
 
 
+def _flip(verdict: JudgeVerdict) -> JudgeVerdict:
+    """The same verdict with A and B swapped (for a pair judged in reverse order)."""
+    winner = {"A": "B", "B": "A"}.get(verdict.winner, verdict.winner)
+    return JudgeVerdict(
+        winner=winner, reason=verdict.reason, a_score=verdict.b_score, b_score=verdict.a_score
+    )
+
+
 # --- Async judging loop ---------------------------------------------------
 
 _JUDGE_SYSTEM = (
@@ -191,13 +199,14 @@ async def run_tournament(
         # disagree, the match collapses toward a 0.5 tie instead of being decided by
         # presentation order. Opt out with cfg.judge_both_orders = False.
         fwd, rev = await asyncio.gather(_ask(a_id, b_id), _ask(b_id, a_id))
-        if fwd is None:
+        # in the swapped call a_id is shown as "B": flip it back to a's point of view
+        rev = _flip(rev) if rev is not None else None
+        verdicts = [v for v in (fwd, rev) if v is not None]
+        if not verdicts:
             return None
-        score_a = _score_from_verdict(fwd)
-        if rev is not None:
-            # in the swapped call a_id is shown as "B", so a's score is 1 - verdict
-            score_a = (score_a + (1.0 - _score_from_verdict(rev))) / 2.0
-        return MatchResult(a=a_id, b=b_id, score_a=score_a, verdict=fwd)
+        # average whichever orders answered (one failed call no longer drops the match)
+        score_a = sum(_score_from_verdict(v) for v in verdicts) / len(verdicts)
+        return MatchResult(a=a_id, b=b_id, score_a=score_a, verdict=verdicts[0])
 
     results = await fan_out([lambda p=p: judge_one(p) for p in pairs])
 
