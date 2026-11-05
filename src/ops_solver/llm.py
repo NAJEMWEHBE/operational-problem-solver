@@ -83,7 +83,7 @@ class FanOutResults(list):
 
 
 def describe_errors(errors: list[BaseException]) -> str:
-    """One-line cause for a phase that lost calls, e.g. ' First error: TypeError: ...'."""
+    """One-line cause for a phase that lost calls: ' First error (2 failed): TypeError: ...'."""
     if not errors:
         return ""
     first = errors[0]
