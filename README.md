@@ -74,7 +74,7 @@ The CLI prints the expected count before it starts. Judge calls grow with
 C(workers, 2) x rounds, so:
 
 - `--cheap` runs workers on Haiku 4.5; the judge stays on Opus 4.8.
-- Fewer `--workers` (3 workers: 3 pairs, 13 calls), fewer `--rounds`, `--reloops 0`.
+- Fewer `--workers` (3 workers: 3 pairs, 11 calls), fewer `--rounds`, `--reloops 0`.
 - `--concurrency` caps calls in flight (default 8); lower it if you hit rate limits.
 - Prompt caching is built in: all workers share one model + a cached Context
   Manifest prefix, and the judge caches the shared problem context across rounds.
