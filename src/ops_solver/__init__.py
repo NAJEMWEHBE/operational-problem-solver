@@ -7,4 +7,4 @@ Three worker teams orchestrated to solve a problem:
     ranks the surviving solutions head-to-head and ships the winner.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ops-solver"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multi-team agentic engine: parallel research + execution workers, consensus stability gate, and an ELO tournament that ships the single best solution."
 readme = "README.md"
 requires-python = ">=3.11"
