@@ -26,7 +26,7 @@ multiple instances in parallel.
 - **Workers:** 4+ parallel instances (`Finch-01` .. `Finch-04`).
 - **Objective:** Process the Context Manifest independently and simultaneously.
   Each worker writes its own standalone solution.
-- **Rule:** Workers are isolated (own workspace dir, distinct strategy + temperature)
+- **Rule:** Workers are isolated (own workspace dir, distinct strategy prompt)
   to prevent groupthink.
 
 ### 3. Quality Assurance Team (Consensus & Tournament)

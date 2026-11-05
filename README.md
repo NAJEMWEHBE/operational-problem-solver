@@ -152,7 +152,7 @@ rigorous). See [SKILL.md](.claude/skills/problem-solver/SKILL.md).
    deps, available linters). Parallel Crows interpret them into one
    `ContextManifest`.
 2. **Execution (Finch):** parallel isolated workers — same manifest, distinct
-   strategy + temperature — each emit a complete standalone solution into its own
+   strategy prompt — each emit a complete standalone solution into its own
    workspace.
 3. **QA Layer 1 (Consensus):** syntax-check + lint + optional tests per artifact.
    If `< 50%` are stable, mutate prompts and re-loop Execution.
