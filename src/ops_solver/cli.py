@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from pathlib import Path
 
 import typer
@@ -39,7 +40,18 @@ def _load_dotenv(cwd: Path) -> None:
         # existing value already short-circuited at the top guard, so we never
         # clobber a genuine env key — but an empty "" no longer shadows .env.
         if key in _DOTENV_ALLOWED and not os.environ.get(key):
-            os.environ[key] = val.strip().strip('"').strip("'")
+            os.environ[key] = _dotenv_value(val)
+
+
+def _dotenv_value(raw: str) -> str:
+    """A .env value: quoted values are taken verbatim; unquoted ones lose an
+    inline ` # comment` (a '#' with no space before it, as in a URL, stays)."""
+    raw = raw.strip()
+    if raw[:1] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        if end != -1:
+            return raw[1:end]
+    return re.split(r"\s+#", raw, maxsplit=1)[0].strip().strip('"').strip("'")
 
 
 def _render(report: RunReport) -> None:
