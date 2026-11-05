@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from .config import RunConfig
-from .llm import LLM, fan_out
+from .llm import LLM, FanOutResults, fan_out
 from .models import ContextManifest, WorkerArtifact
 
 _EXEC_SYSTEM = (
@@ -133,4 +133,5 @@ async def run_workers(
         return run
 
     results = await fan_out([worker(i) for i in range(cfg.exec_workers)])
-    return [a for a in results if isinstance(a, WorkerArtifact)]
+    # keep the failures' causes so the orchestrator can report them
+    return FanOutResults((a for a in results if isinstance(a, WorkerArtifact)), results.errors)

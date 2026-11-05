@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from .config import RunConfig
-from .llm import LLM, fan_out
+from .llm import LLM, describe_errors, fan_out
 from .models import ContextManifest, ManifestDraft
 
 logger = logging.getLogger("ops_solver.intelligence")
@@ -100,7 +100,7 @@ async def gather_context(llm: LLM, cfg: RunConfig, problem: str, probe: dict) ->
         raise RuntimeError(
             f"Intelligence phase produced 0 usable manifest drafts out of "
             f"{cfg.intel_workers} ({cfg.intel_model}). All Crow calls failed or returned "
-            f"unparseable output - check ANTHROPIC_API_KEY, the model id, and rate limits."
+            f"unparseable output.{describe_errors(raw.errors)}"
         )
     if len(drafts) < cfg.intel_workers:
         logger.warning("intelligence: %d/%d Crow drafts survived", len(drafts), cfg.intel_workers)

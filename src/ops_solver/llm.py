@@ -73,19 +73,47 @@ class TokenLedger:
 # --- Concurrency ----------------------------------------------------------
 
 
-async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> list[Any]:
+class FanOutResults(list):
+    """`fan_out`'s result: a plain list aligned to the input thunks (a failure is
+    `None` in its slot), plus `.errors`, the exceptions behind those Nones."""
+
+    def __init__(self, items=(), errors: list[BaseException] | None = None) -> None:
+        super().__init__(items)
+        self.errors: list[BaseException] = list(errors or [])
+
+
+def describe_errors(errors: list[BaseException]) -> str:
+    """One-line cause for a phase that lost calls, e.g. ' First error: TypeError: ...'."""
+    if not errors:
+        return ""
+    first = errors[0]
+    return f" First error ({len(errors)} failed): {type(first).__name__}: {str(first)[:300]}"
+
+
+async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> FanOutResults:
     """Run async thunks; warm the shared cache by awaiting the first, then
-    fan the rest out concurrently. Failures become `None` (aligned to input)."""
+    fan the rest out concurrently. Failures become `None` (aligned to input);
+    each one is logged with its cause and kept in the result's `.errors`."""
+    out = FanOutResults()
     if not thunks:
-        return []
-    out: list[Any] = []
+        return out
+
+    def failed(i: int, exc: BaseException) -> None:
+        logger.warning("call %d/%d failed: %s: %s", i + 1, len(thunks), type(exc).__name__, exc)
+        out.errors.append(exc)
+        out.append(None)
+
     try:
         out.append(await thunks[0]())
-    except Exception:  # noqa: BLE001 - any worker failure becomes a None result; the gate scores the rest
-        out.append(None)
+    except Exception as exc:  # noqa: BLE001 - a failed call becomes a None result; the gate scores the rest
+        failed(0, exc)
     if len(thunks) > 1:
         rest = await asyncio.gather(*(t() for t in thunks[1:]), return_exceptions=True)
-        out.extend(None if isinstance(r, Exception) else r for r in rest)
+        for i, r in enumerate(rest, start=1):
+            if isinstance(r, BaseException):
+                failed(i, r)
+            else:
+                out.append(r)
     return out
 
 

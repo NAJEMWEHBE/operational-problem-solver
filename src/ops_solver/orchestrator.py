@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import elo, env_probe, execution, intelligence, qa_consensus
 from .config import RunConfig
-from .llm import LLM, TokenLedger
+from .llm import LLM, TokenLedger, describe_errors
 from .models import RunReport
 
 logger = logging.getLogger("ops_solver.orchestrator")
@@ -70,7 +70,7 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         raise RuntimeError(
             f"Execution phase produced 0 solutions out of {cfg.exec_workers} workers "
             f"({cfg.worker_model}) after {attempts} attempt(s). All workers failed or "
-            f"returned empty output - check ANTHROPIC_API_KEY and rate limits."
+            f"returned empty output.{describe_errors(getattr(artifacts, 'errors', []))}"
         )
 
     # Phase III — ELO tournament over the stable survivors (or all, if none stable)
