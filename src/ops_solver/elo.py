@@ -112,6 +112,15 @@ def _score_from_verdict(verdict: JudgeVerdict) -> float:
     return 0.5
 
 
+def _round_focus(r: int) -> str:
+    """Emphasis line for tournament round r (round 0: none)."""
+    if r == 0:
+        return ""
+    extra = _ROUND_FOCUS[1:]
+    cycle, idx = divmod(r - 1, len(extra))
+    return extra[idx] + (f" (pass {r + 1})" if cycle else "")
+
+
 def _flip(verdict: JudgeVerdict) -> JudgeVerdict:
     """The same verdict with A and B swapped (for a pair judged in reverse order)."""
     winner = {"A": "B", "B": "A"}.get(verdict.winner, verdict.winner)
@@ -146,13 +155,25 @@ def _judge_system_blocks(manifest: ContextManifest) -> list[dict]:
     ]
 
 
-def _pair_user_prompt(a: WorkerArtifact, b: WorkerArtifact) -> str:
+# Rounds after the first re-judge every pair with a different emphasis. The API
+# takes no sampling parameters, so re-asking the same prompt would only pay
+# again for the same verdict.
+_ROUND_FOCUS = [
+    "",
+    "In this pass, weigh correctness on edge cases and bad input most heavily.",
+    "In this pass, weigh readability and maintainability most heavily.",
+    "In this pass, weigh performance and resource footprint most heavily.",
+]
+
+
+def _pair_user_prompt(a: WorkerArtifact, b: WorkerArtifact, focus: str = "") -> str:
     return (
         f"### Solution A (id={a.worker_id}, strategy: {a.strategy})\n"
         f"```{a.language}\n{a.code}\n```\n\n"
         f"### Solution B (id={b.worker_id}, strategy: {b.strategy})\n"
         f"```{b.language}\n{b.code}\n```\n\n"
-        "Which solution is better? Respond with the structured verdict."
+        + (f"{focus}\n" if focus else "")
+        + "Which solution is better? Respond with the structured verdict."
     )
 
 
@@ -175,21 +196,26 @@ async def run_tournament(
         # Nothing to compare; single survivor wins by default.
         return engine.leaderboard(objective, cfg.blend_elo)
 
-    pairs = pairings(ids, cfg.elo_rounds)
+    base_pairs = pairings(ids)
+    rounds = max(1, cfg.elo_rounds)
+    # (a, b, focus) per match; round r > 0 uses its own emphasis (cycling past the list)
+    pairs = [
+        (a, b, _round_focus(r)) for r in range(rounds) for a, b in base_pairs
+    ]
     system = _judge_system_blocks(manifest)
 
-    def _ask(x_id: str, y_id: str):
+    def _ask(x_id: str, y_id: str, focus: str):
         return llm.judge(
             model=cfg.judge_model,
             system=system,
-            user=_pair_user_prompt(by_id[x_id], by_id[y_id]),
+            user=_pair_user_prompt(by_id[x_id], by_id[y_id], focus),
             max_tokens=cfg.judge_max_tokens,
         )
 
-    async def judge_one(pair: tuple[str, str]) -> MatchResult | None:
-        a_id, b_id = pair
+    async def judge_one(pair: tuple[str, str, str]) -> MatchResult | None:
+        a_id, b_id, focus = pair
         if not cfg.judge_both_orders:
-            verdict = await _ask(a_id, b_id)
+            verdict = await _ask(a_id, b_id, focus)
             if verdict is None:
                 return None
             return MatchResult(a=a_id, b=b_id, score_a=_score_from_verdict(verdict), verdict=verdict)
@@ -198,7 +224,7 @@ async def run_tournament(
         # whichever solution is shown first cancels itself out -- when the two orderings
         # disagree, the match collapses toward a 0.5 tie instead of being decided by
         # presentation order. Opt out with cfg.judge_both_orders = False.
-        fwd, rev = await asyncio.gather(_ask(a_id, b_id), _ask(b_id, a_id))
+        fwd, rev = await asyncio.gather(_ask(a_id, b_id, focus), _ask(b_id, a_id, focus))
         # in the swapped call a_id is shown as "B": flip it back to a's point of view
         rev = _flip(rev) if rev is not None else None
         verdicts = [v for v in (fwd, rev) if v is not None]

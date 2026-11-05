@@ -98,3 +98,21 @@ async def test_reverse_verdict_is_used_when_the_forward_call_fails():
     match = board.matches[0]
     assert (match.a, match.b, match.score_a) == ("W0", "W1", 1.0)
     assert board.winner == "W0"
+
+
+class RecordingJudge(JudgeAWins):
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    async def judge(self, *, model, system, user, max_tokens=1500):
+        self.prompts.append(user)
+        return await super().judge(model=model, system=system, user=user, max_tokens=max_tokens)
+
+
+async def test_each_extra_round_asks_a_different_question():
+    # No sampling parameters any more: an identical prompt would buy an
+    # identical verdict, so each round must vary what it asks.
+    judge = RecordingJudge()
+    await run_tournament(judge, RunConfig(problem="p", elo_rounds=3), _arts(3), _manifest(), {})
+    assert len(judge.prompts) == 3 * 3 * 2  # pairs x rounds x both orders
+    assert len(set(judge.prompts)) == len(judge.prompts)
