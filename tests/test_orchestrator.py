@@ -178,3 +178,35 @@ async def test_partly_dropped_judge_matches_are_reported(tmp_path: Path):
     report = await solve(cfg, llm=HalfDeafJudgeLLM())
     assert 0 < len(report.leaderboard.matches) < 3
     assert any("judge matches dropped" in w for w in report.warnings)
+
+
+async def test_runs_started_in_the_same_second_get_their_own_folders(tmp_path: Path):
+    cfg = RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=1, exec_workers=1, max_reloops=0, lint=False,
+    )
+    first = await solve(cfg, llm=MockLLM())
+    second = await solve(cfg, llm=MockLLM())
+    assert first.run_id != second.run_id
+    assert len(list((tmp_path / "runs").iterdir())) == 2
+
+
+class PythonThenJsLLM(MockLLM):
+    """Attempt 0: broken Python plus notes. Attempt 1: JavaScript, no notes."""
+
+    async def complete(self, *, model, system, user, max_tokens=4096, thinking=False):
+        self._n += 1
+        if self._n == 1:
+            return "```python\ndef f(:\n```\nNotes from the first try."
+        return "```javascript\nconsole.log(1);\n```"
+
+
+async def test_a_reloop_leaves_no_stale_files_in_the_shipped_winner(tmp_path: Path):
+    cfg = RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=1, exec_workers=1, max_reloops=1, lint=False,
+    )
+    report = await solve(cfg, llm=PythonThenJsLLM())
+    assert report.attempts == 2
+    shipped = sorted(p.name for p in Path(report.winner_path).iterdir())
+    assert shipped == ["solution.js"]

@@ -9,6 +9,7 @@ worker prompts and Phase II re-runs, up to `max_reloops`.
 from __future__ import annotations
 
 import logging
+import secrets
 import shutil
 import time
 from pathlib import Path
@@ -32,9 +33,11 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         )
     ledger = llm.ledger
 
-    run_id = time.strftime("run-%Y%m%d-%H%M%S")
+    # timestamp for sorting + a random suffix: two runs in the same second must
+    # not share (and overwrite) one folder
+    run_id = f"{time.strftime('run-%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
     run_dir = cfg.runs_dir / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True)
 
     # Phase I — Intelligence
     probe = env_probe.probe(cfg.cwd)
