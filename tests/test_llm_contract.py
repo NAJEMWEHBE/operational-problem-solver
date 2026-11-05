@@ -109,3 +109,47 @@ async def test_no_request_carries_sampling_parameters(tmp_path):
     await solve(cfg, llm=LLM(client=api.client()))
     sent_keys = set().union(*(set(b) for b in api.requests))
     assert not sent_keys & {"temperature", "top_p", "top_k"}
+
+
+# --- structured(): one call per answer, errors propagate ------------------
+
+
+async def test_structured_schema_invalid_reply_costs_one_call_and_is_counted():
+    from ops_solver.models import JudgeVerdict
+
+    api = FakeAPI(lambda body: httpx2.Response(200, json=message('{"winner": "Z"}')))
+    llm = LLM(client=api.client())
+    out = await llm.structured(model="claude-opus-4-8", system="s", user="u", schema=JudgeVerdict)
+    assert out is None
+    assert len(api.requests) == 1
+    assert llm.ledger.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "exc"),
+    [(401, anthropic.AuthenticationError), (429, anthropic.RateLimitError), (500, anthropic.InternalServerError)],
+)
+async def test_structured_api_errors_propagate_without_a_second_call(status, exc):
+    from ops_solver.models import JudgeVerdict
+
+    api = FakeAPI(lambda body: error(status))
+    llm = LLM(client=api.client())
+    with pytest.raises(exc):
+        await llm.structured(model="claude-opus-4-8", system="s", user="u", schema=JudgeVerdict)
+    assert len(api.requests) == 1
+
+
+async def test_structured_falls_back_to_json_prompt_when_the_api_refuses_the_schema():
+    from ops_solver.models import JudgeVerdict
+
+    def reply(body):
+        if "output_config" in body:
+            return error(400)
+        return httpx2.Response(200, json=message(f"Here you go: {VERDICT_JSON}"))
+
+    api = FakeAPI(reply)
+    llm = LLM(client=api.client())
+    out = await llm.structured(model="claude-opus-4-8", system="s", user="u", schema=JudgeVerdict)
+    assert out is not None and out.winner == "A"
+    assert len(api.requests) == 2
+    assert llm.ledger.calls == 1  # the refused call returned no usage

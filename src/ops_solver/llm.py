@@ -173,15 +173,16 @@ class LLM:
             client = anthropic.AsyncAnthropic(max_retries=api_max_retries)
         self.client = client
 
-    async def _complete_raw(
-        self,
-        *,
-        model: str,
-        system: list[dict] | str,
-        user: str,
-        max_tokens: int,
-        thinking: bool = False,
-    ) -> str:
+    async def _send(self, kwargs: dict[str, Any]) -> Any:
+        """One Messages API call; usage is recorded before anything is parsed."""
+        resp = await self.client.messages.create(**kwargs)
+        self.ledger.record(kwargs["model"], resp.usage)
+        return resp
+
+    @staticmethod
+    def _request(
+        *, model: str, system: list[dict] | str, user: str, max_tokens: int, thinking: bool
+    ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -190,9 +191,7 @@ class LLM:
         }
         if thinking:
             kwargs["thinking"] = {"type": "adaptive"}
-        resp = await self.client.messages.create(**kwargs)
-        self.ledger.record(model, resp.usage)
-        return _text_of(resp)
+        return kwargs
 
     async def complete(
         self,
@@ -203,13 +202,10 @@ class LLM:
         max_tokens: int = 4096,
         thinking: bool = False,
     ) -> str:
-        return await self._complete_raw(
-            model=model,
-            system=system,
-            user=user,
-            max_tokens=max_tokens,
-            thinking=thinking,
+        req = self._request(
+            model=model, system=system, user=user, max_tokens=max_tokens, thinking=thinking
         )
+        return _text_of(await self._send(req))
 
     async def structured(
         self,
@@ -221,42 +217,40 @@ class LLM:
         max_tokens: int = 1500,
         thinking: bool = False,
     ) -> T | None:
-        """Return a validated `schema` instance.
+        """Return a validated `schema` instance, or None if the reply doesn't fit it.
 
-        Primary path is the native structured-output API (one call). Only if that
-        call *raises* (e.g. an SDK build without `messages.parse`) do we make a
-        single fallback call with instruction-guided JSON extraction. We never make
-        a second API call just because the first returned unusable output, and we
-        never record usage twice for one call.
+        One call with native structured output (`output_config.format`), validated
+        locally. Only if the API refuses that request (400, e.g. a schema it can't
+        compile) is a single fallback call made with an instruction-guided JSON
+        prompt. Auth, rate-limit, server and connection errors propagate to the
+        caller, and unusable output never triggers a second call.
         """
-        messages = [{"role": "user", "content": user}]
-        kw: dict[str, Any] = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": messages,
-        }
-        if thinking:
-            kw["thinking"] = {"type": "adaptive"}
+        import anthropic
 
-        try:
-            resp = await self.client.messages.parse(output_format=schema, **kw)
-            self.ledger.record(model, resp.usage)
-            parsed = getattr(resp, "parsed_output", None)
-            if parsed is not None:
-                return parsed
-            return _coerce(_text_of(resp), schema)
-        except Exception as exc:  # noqa: BLE001 - logged, then the JSON fallback below
-            logger.warning("structured(): native parse failed, falling back to JSON: %s", exc)
-
-        text = await self._complete_raw(
-            model=model,
-            system=system,
-            user=user + "\n\n" + _json_instruction(schema),
-            max_tokens=max_tokens,
-            thinking=thinking,
+        req = self._request(
+            model=model, system=system, user=user, max_tokens=max_tokens, thinking=thinking
         )
-        return _coerce(text, schema)
+        req["output_config"] = {
+            "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)}
+        }
+        try:
+            resp = await self._send(req)
+        except anthropic.BadRequestError as exc:
+            logger.warning(
+                "structured(): API refused the %s output schema (%s); retrying once with a "
+                "JSON instruction",
+                schema.__name__,
+                exc,
+            )
+            fallback = self._request(
+                model=model,
+                system=system,
+                user=user + "\n\n" + _json_instruction(schema),
+                max_tokens=max_tokens,
+                thinking=thinking,
+            )
+            resp = await self._send(fallback)
+        return _coerce(_text_of(resp), schema)
 
     async def judge(
         self,
