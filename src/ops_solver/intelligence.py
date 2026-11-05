@@ -92,7 +92,6 @@ async def gather_context(llm: LLM, cfg: RunConfig, problem: str, probe: dict) ->
             user=user,
             schema=ManifestDraft,
             max_tokens=cfg.intel_max_tokens,
-            temperature=min(1.0, 0.3 + 0.15 * i),
         )
 
     raw = await fan_out([crow(i) for i in range(cfg.intel_workers)])

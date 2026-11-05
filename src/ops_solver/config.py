@@ -15,8 +15,9 @@ WORKER_MODEL = "claude-sonnet-4-6"     # execution workers: balanced quality/cos
 INTEL_MODEL = "claude-sonnet-4-6"      # intelligence team
 CHEAP_WORKER_MODEL = "claude-haiku-4-5"  # --cheap: fastest, lowest cost
 
-# Opus 4.7/4.8 reject sampling params (temperature/top_p/top_k) -> 400.
-NO_SAMPLING_MODELS = ("claude-opus-4-8", "claude-opus-4-7")
+# No sampling parameters (temperature/top_p/top_k) are sent: anthropic SDK 2.x
+# and the current API version no longer accept them on any model. Worker and
+# Crow diversity comes from their distinct strategy / angle prompts instead.
 
 # USD per 1,000,000 tokens: (input, output). Cache read ~= 0.1x input,
 # cache write ~= 1.25x input (5-minute TTL).
@@ -29,11 +30,6 @@ PRICES: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5-20251001": (1.0, 5.0),
 }
 DEFAULT_PRICE = (3.0, 15.0)
-
-
-def supports_sampling(model: str) -> bool:
-    """Whether `temperature` may be passed for this model."""
-    return not any(model.startswith(m) for m in NO_SAMPLING_MODELS)
 
 
 @dataclass
@@ -63,8 +59,6 @@ class RunConfig:
     worker_max_tokens: int = 4096
     intel_max_tokens: int = 1500
     judge_max_tokens: int = 1500
-    base_temperature: float = 0.6     # worker diversity nudge (non-Opus only)
-    temperature_step: float = 0.12
 
     # ELO
     k_factor: float = 32.0

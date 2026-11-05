@@ -69,3 +69,43 @@ async def test_complete_uses_the_injected_client(api: FakeAPI):
     assert text == CODE_REPLY
     assert len(api.requests) == 1
     assert llm.ledger.calls == 1
+
+
+# --- a whole run through the real adapter ---------------------------------
+
+MANIFEST_JSON = '{"dependencies": [], "constraints": ["be correct"], "parameters": {}, "risks": [], "notes": "n"}'
+VERDICT_JSON = '{"winner": "A", "reason": "cleaner", "a_score": 8, "b_score": 6}'
+
+
+def pipeline_reply(body: dict) -> httpx2.Response:
+    """Answer like the API would for each of the engine's three call kinds."""
+    fmt = (body.get("output_config") or {}).get("format")
+    if fmt:
+        props = fmt.get("schema", {}).get("properties", {})
+        return httpx2.Response(200, json=message(VERDICT_JSON if "winner" in props else MANIFEST_JSON))
+    return httpx2.Response(200, json=message(CODE_REPLY))
+
+
+async def test_solve_end_to_end_through_the_real_adapter(tmp_path):
+    from ops_solver.config import RunConfig
+    from ops_solver.orchestrator import solve
+
+    api = FakeAPI(pipeline_reply)
+    cfg = RunConfig(problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs", lint=False)
+    report = await solve(cfg, llm=LLM(client=api.client()))
+
+    assert report.winner_id is not None
+    # 2 intel + 4 workers + 6 pairs x 2 orders
+    assert len(api.requests) == 2 + 4 + 12
+    assert report.tokens["calls"] == len(api.requests)
+
+
+async def test_no_request_carries_sampling_parameters(tmp_path):
+    from ops_solver.config import RunConfig
+    from ops_solver.orchestrator import solve
+
+    api = FakeAPI(pipeline_reply)
+    cfg = RunConfig(problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs", lint=False, max_reloops=0)
+    await solve(cfg, llm=LLM(client=api.client()))
+    sent_keys = set().union(*(set(b) for b in api.requests))
+    assert not sent_keys & {"temperature", "top_p", "top_k"}

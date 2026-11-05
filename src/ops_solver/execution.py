@@ -2,7 +2,7 @@
 
 Parallel, isolated solution workers. All workers share ONE model and the same
 cached ContextManifest prefix (so caching hits across them); each gets a distinct
-strategy nudge + temperature to avoid groupthink. Each worker's output is written
+strategy nudge to avoid groupthink. Each worker's output is written
 to its own workspace directory.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .config import RunConfig, supports_sampling
+from .config import RunConfig
 from .llm import LLM, fan_out
 from .models import ContextManifest, WorkerArtifact
 
@@ -93,8 +93,7 @@ async def run_workers(
         {"type": "text", "text": _EXEC_SYSTEM},
         {"type": "text", "text": _manifest_block(manifest), "cache_control": {"type": "ephemeral"}},
     ]
-    # Re-loops raise the diversity temperature and inject prior-failure feedback.
-    temp_bump = 0.1 * attempt
+    # Re-loops inject prior-failure feedback into every worker's prompt.
     feedback_note = f"\n\nA previous attempt had problems: {feedback}\nAvoid them." if feedback else ""
 
     def worker(i: int):
@@ -104,9 +103,6 @@ async def run_workers(
             f"Solve the problem using this approach: {strategy}.{feedback_note}\n\n"
             "Produce the complete solution now."
         )
-        temperature = None
-        if supports_sampling(cfg.worker_model):
-            temperature = min(1.0, cfg.base_temperature + cfg.temperature_step * i + temp_bump)
 
         async def run() -> WorkerArtifact | None:
             text = await llm.complete(
@@ -114,7 +110,6 @@ async def run_workers(
                 system=system,
                 user=user,
                 max_tokens=cfg.worker_max_tokens,
-                temperature=temperature,
             )
             if not text:
                 return None

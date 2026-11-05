@@ -21,7 +21,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from .config import DEFAULT_PRICE, PRICES, supports_sampling
+from .config import DEFAULT_PRICE, PRICES
 from .models import JudgeVerdict
 
 T = TypeVar("T", bound=BaseModel)
@@ -180,7 +180,6 @@ class LLM:
         system: list[dict] | str,
         user: str,
         max_tokens: int,
-        temperature: float | None = None,
         thinking: bool = False,
     ) -> str:
         kwargs: dict[str, Any] = {
@@ -191,8 +190,6 @@ class LLM:
         }
         if thinking:
             kwargs["thinking"] = {"type": "adaptive"}
-        elif temperature is not None and supports_sampling(model):
-            kwargs["temperature"] = temperature
         resp = await self.client.messages.create(**kwargs)
         self.ledger.record(model, resp.usage)
         return _text_of(resp)
@@ -204,7 +201,6 @@ class LLM:
         system: list[dict] | str,
         user: str,
         max_tokens: int = 4096,
-        temperature: float | None = None,
         thinking: bool = False,
     ) -> str:
         return await self._complete_raw(
@@ -212,7 +208,6 @@ class LLM:
             system=system,
             user=user,
             max_tokens=max_tokens,
-            temperature=temperature,
             thinking=thinking,
         )
 
@@ -224,7 +219,6 @@ class LLM:
         user: str,
         schema: type[T],
         max_tokens: int = 1500,
-        temperature: float | None = None,
         thinking: bool = False,
     ) -> T | None:
         """Return a validated `schema` instance.
@@ -244,8 +238,6 @@ class LLM:
         }
         if thinking:
             kw["thinking"] = {"type": "adaptive"}
-        elif temperature is not None and supports_sampling(model):
-            kw["temperature"] = temperature  # keep the per-worker diversity gradient
 
         try:
             resp = await self.client.messages.parse(output_format=schema, **kw)
@@ -262,7 +254,6 @@ class LLM:
             system=system,
             user=user + "\n\n" + _json_instruction(schema),
             max_tokens=max_tokens,
-            temperature=temperature,
             thinking=thinking,
         )
         return _coerce(text, schema)

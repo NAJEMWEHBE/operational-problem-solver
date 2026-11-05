@@ -2,8 +2,8 @@
 Phase III (QA consensus + ELO tournament) -> ship the winner.
 
 Implements the consensus re-loop: if fewer than `stability_threshold` of the
-workers produce stable output, the prompt variables are mutated (temperature
-bumped, failure feedback injected) and Phase II re-runs, up to `max_reloops`.
+workers produce stable output, the failure feedback is injected into the
+worker prompts and Phase II re-runs, up to `max_reloops`.
 """
 
 from __future__ import annotations
