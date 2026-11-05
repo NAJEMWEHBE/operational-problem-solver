@@ -7,6 +7,7 @@ pretend the LLM "scrapes logs" — it interprets what this module gathered.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -89,15 +90,21 @@ def probe(cwd: Path, max_files: int = 60) -> dict:
     cwd = Path(cwd)
     files: list[str] = []
     if cwd.exists():
-        for p in cwd.rglob("*"):
-            if p.is_symlink():                 # don't follow symlinks (loop / escape / DoS)
-                continue
-            if any(part in _SKIP_DIRS for part in p.parts):
-                continue
-            if p.is_file():
-                files.append(str(p.relative_to(cwd)))
+        # os.walk lets us prune skipped dirs (node_modules, .git, ...) before
+        # descending, and the skip test sees only names *inside* cwd, so a parent
+        # folder called build/ or runs/ doesn't hide the whole project.
+        for root, dirnames, filenames in os.walk(cwd):   # followlinks=False by default
+            dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS)
+            base = Path(root)
+            for name in sorted(filenames):
+                p = base / name
+                if p.is_symlink():                 # don't follow symlinks (loop / escape / DoS)
+                    continue
+                files.append(p.relative_to(cwd).as_posix())
                 if len(files) >= max_files:     # bound the walk, don't materialize the whole tree
                     break
+            if len(files) >= max_files:
+                break
         files.sort()
 
     return {
