@@ -194,9 +194,11 @@ def main(
             "[yellow]Note:[/] --test-cmd will EXECUTE the generated code for each worker."
         )
 
+    calls, worst = cfg.expected_calls()
     console.print(
         f"[dim]Engine: {cfg.intel_workers} intel + {cfg.exec_workers} exec "
-        f"(workers={cfg.worker_model}, judge={cfg.judge_model})[/]"
+        f"(workers={cfg.worker_model}, judge={cfg.judge_model}); "
+        f"{calls} API calls (up to {worst} with re-loops)[/]"
     )
     try:
         report = asyncio.run(solve(cfg))

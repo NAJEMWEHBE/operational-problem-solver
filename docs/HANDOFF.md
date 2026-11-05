@@ -24,7 +24,7 @@ ops-solve "solve: <problem>" --workers 4 --intel 2
 Offline logic tests (no API spend): `pytest -q`.
 
 ## The skill (auto-use)
-Installed globally at `C:\Users\NINOH\.claude\skills\problem-solver\SKILL.md` → available in every Claude Code session. A `problem-solver` route in `~/.claude/hooks/skill-routes.json` makes Claude reach for it **only** when a task clearly wants "several competing solutions → pick the best" (or `solve:` / the name). Default is NOT to use it; trivial asks get a plain answer. The engine (~8–12 metered calls) only runs when it genuinely fits, with a cost-confirm first.
+Installed globally at `C:\Users\NINOH\.claude\skills\problem-solver\SKILL.md` → available in every Claude Code session. A `problem-solver` route in `~/.claude/hooks/skill-routes.json` makes Claude reach for it **only** when a task clearly wants "several competing solutions → pick the best" (or `solve:` / the name). Default is NOT to use it; trivial asks get a plain answer. The engine (18 metered calls by default) only runs when it genuinely fits, with a cost-confirm first.
 
 ## Architecture
 See [ARCHITECTURE.md](ARCHITECTURE.md). Modules under `src/ops_solver/`: `config`, `models`, `llm` (Anthropic adapter, prompt caching, fan-out, cost ledger), `env_probe`, `intelligence`, `execution`, `qa_consensus`, `elo`, `orchestrator`, `cli`.

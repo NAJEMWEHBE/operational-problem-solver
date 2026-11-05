@@ -85,6 +85,16 @@ class RunConfig:
     # Per-attempt deadline in seconds; None scales it with each call's max_tokens.
     api_timeout_s: float | None = None
 
+    def expected_calls(self) -> tuple[int, int]:
+        """(calls for a run with no re-loop, calls if every re-loop happens).
+
+        Intel + workers + C(n,2) judge pairs x rounds x (2 if both orders). Most
+        of the judge calls go to the most expensive model."""
+        n = self.exec_workers
+        judge = (n * (n - 1) // 2) * max(1, self.elo_rounds) * (2 if self.judge_both_orders else 1)
+        first = self.intel_workers + n + judge
+        return first, first + n * self.max_reloops
+
     def __post_init__(self) -> None:
         self.cwd = Path(self.cwd)
         if self.runs_dir is None:

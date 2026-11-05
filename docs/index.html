@@ -252,7 +252,7 @@
   3  Finch-04    978   1-2-0   0.55
   4  Finch-02    946   0-3-0   0.38
 
-<span class="f">winner</span> → runs/run-…/WINNER/solution.py     <span class="d">calls: 11 · est. $0.04</span></pre>
+<span class="f">winner</span> → runs/run-…/WINNER/solution.py     <span class="d">calls: 18</span></pre>
   </div>
 </div></section>
 
@@ -270,7 +270,7 @@
   <div style="height:26px"></div>
   <div class="callout reveal">
     <span class="ic">⚡</span>
-    <p><b>Honest about cost.</b> Every worker and the judge are metered Claude API calls — roughly 8–12 per run by default. Prompt caching, a <code>--cheap</code> Haiku tier, and fewer workers keep it down. The engine prints an estimated dollar cost every run. The offline test suite runs the ELO and consensus logic with a mocked model — zero API spend.</p>
+    <p><b>Honest about cost.</b> Every worker and the judge are metered Claude API calls — 18 per run by default (2 intelligence, 4 workers, 6 judge pairs in both orders), and the CLI prints the count before it starts. Prompt caching, a <code>--cheap</code> Haiku tier, and fewer workers keep it down. The engine prints an estimated dollar cost every run. The offline test suite runs the ELO and consensus logic with a mocked model — zero API spend.</p>
   </div>
 </div></section>
 
