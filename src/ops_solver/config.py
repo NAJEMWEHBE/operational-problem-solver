@@ -58,7 +58,9 @@ class RunConfig:
     # Generation knobs
     worker_max_tokens: int = 4096
     intel_max_tokens: int = 1500
-    judge_max_tokens: int = 1500
+    # Adaptive thinking counts toward max_tokens, and the judge reads two full
+    # solutions; 1500 cut verdicts off. Stays under the SDK's non-streaming cap.
+    judge_max_tokens: int = 16000
 
     # ELO
     k_factor: float = 32.0

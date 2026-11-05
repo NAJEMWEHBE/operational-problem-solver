@@ -14,7 +14,10 @@ import anthropic
 import httpx2
 import pytest
 
+from ops_solver.config import RunConfig
 from ops_solver.llm import LLM
+from ops_solver.models import JudgeVerdict
+from ops_solver.orchestrator import solve
 
 CODE_REPLY = "```python\ndef f():\n    return 1\n```\nok"
 
@@ -87,9 +90,6 @@ def pipeline_reply(body: dict) -> httpx2.Response:
 
 
 async def test_solve_end_to_end_through_the_real_adapter(tmp_path):
-    from ops_solver.config import RunConfig
-    from ops_solver.orchestrator import solve
-
     api = FakeAPI(pipeline_reply)
     cfg = RunConfig(problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs", lint=False)
     report = await solve(cfg, llm=LLM(client=api.client()))
@@ -101,9 +101,6 @@ async def test_solve_end_to_end_through_the_real_adapter(tmp_path):
 
 
 async def test_no_request_carries_sampling_parameters(tmp_path):
-    from ops_solver.config import RunConfig
-    from ops_solver.orchestrator import solve
-
     api = FakeAPI(pipeline_reply)
     cfg = RunConfig(problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs", lint=False, max_reloops=0)
     await solve(cfg, llm=LLM(client=api.client()))
@@ -115,8 +112,6 @@ async def test_no_request_carries_sampling_parameters(tmp_path):
 
 
 async def test_structured_schema_invalid_reply_costs_one_call_and_is_counted():
-    from ops_solver.models import JudgeVerdict
-
     api = FakeAPI(lambda body: httpx2.Response(200, json=message('{"winner": "Z"}')))
     llm = LLM(client=api.client())
     out = await llm.structured(model="claude-opus-4-8", system="s", user="u", schema=JudgeVerdict)
@@ -127,11 +122,13 @@ async def test_structured_schema_invalid_reply_costs_one_call_and_is_counted():
 
 @pytest.mark.parametrize(
     ("status", "exc"),
-    [(401, anthropic.AuthenticationError), (429, anthropic.RateLimitError), (500, anthropic.InternalServerError)],
+    [
+        (401, anthropic.AuthenticationError),
+        (429, anthropic.RateLimitError),
+        (500, anthropic.InternalServerError),
+    ],
 )
 async def test_structured_api_errors_propagate_without_a_second_call(status, exc):
-    from ops_solver.models import JudgeVerdict
-
     api = FakeAPI(lambda body: error(status))
     llm = LLM(client=api.client())
     with pytest.raises(exc):
@@ -140,8 +137,6 @@ async def test_structured_api_errors_propagate_without_a_second_call(status, exc
 
 
 async def test_structured_falls_back_to_json_prompt_when_the_api_refuses_the_schema():
-    from ops_solver.models import JudgeVerdict
-
     def reply(body):
         if "output_config" in body:
             return error(400)
@@ -153,3 +148,13 @@ async def test_structured_falls_back_to_json_prompt_when_the_api_refuses_the_sch
     assert out is not None and out.winner == "A"
     assert len(api.requests) == 2
     assert llm.ledger.calls == 1  # the refused call returned no usage
+
+
+async def test_a_reply_cut_off_at_max_tokens_is_logged(caplog):
+    cut_off = message('{"winner": "A", "rea', stop_reason="max_tokens")
+    api = FakeAPI(lambda body: httpx2.Response(200, json=cut_off))
+    llm = LLM(client=api.client())
+    with caplog.at_level("WARNING", logger="ops_solver.llm"):
+        out = await llm.judge(model="claude-opus-4-8", system="s", user="u", max_tokens=1500)
+    assert out is None
+    assert any("max_tokens" in r.getMessage() and "1500" in r.getMessage() for r in caplog.records)

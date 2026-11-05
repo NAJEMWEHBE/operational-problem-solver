@@ -205,6 +205,14 @@ class LLM:
         """One Messages API call; usage is recorded before anything is parsed."""
         resp = await self.client.messages.create(**kwargs)
         self.ledger.record(kwargs["model"], resp.usage)
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            # thinking tokens count toward max_tokens; a cut-off reply usually
+            # means no usable structured verdict
+            logger.warning(
+                "%s reply stopped at max_tokens=%d; the output is cut off (raise the budget)",
+                kwargs["model"],
+                kwargs["max_tokens"],
+            )
         return resp
 
     @staticmethod
@@ -286,7 +294,7 @@ class LLM:
         model: str,
         system: list[dict] | str,
         user: str,
-        max_tokens: int = 1500,
+        max_tokens: int = 16000,
     ) -> JudgeVerdict | None:
         verdict = await self.structured(
             model=model,

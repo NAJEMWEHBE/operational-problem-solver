@@ -158,3 +158,23 @@ async def test_execution_failure_names_the_real_cause(tmp_path: Path):
     )
     with pytest.raises(RuntimeError, match="PermissionError: 403 model not allowed"):
         await solve(cfg, llm=RaisingWorkersLLM())
+
+
+class HalfDeafJudgeLLM(MockLLM):
+    """Every other judge call returns no verdict (e.g. cut off at max_tokens)."""
+
+    async def judge(self, *, model, system, user, max_tokens=1500):
+        self._n += 1
+        if self._n % 2:
+            return None
+        return JudgeVerdict(winner="A", reason="r", a_score=8, b_score=6)
+
+
+async def test_partly_dropped_judge_matches_are_reported(tmp_path: Path):
+    cfg = RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=1, exec_workers=3, max_reloops=0, lint=False, judge_both_orders=False,
+    )
+    report = await solve(cfg, llm=HalfDeafJudgeLLM())
+    assert 0 < len(report.leaderboard.matches) < 3
+    assert any("judge matches dropped" in w for w in report.warnings)

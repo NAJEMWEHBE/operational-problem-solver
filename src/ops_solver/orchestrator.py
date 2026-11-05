@@ -82,10 +82,18 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         if a.worker_id in eval_by_id
     }
     leaderboard = await elo.run_tournament(llm, cfg, competing, manifest, objective)
-    if len(competing) >= 2 and not leaderboard.matches:
+    expected_matches = len(elo.pairings([a.worker_id for a in competing], cfg.elo_rounds)) if len(competing) >= 2 else 0
+    dropped = expected_matches - len(leaderboard.matches)
+    if expected_matches and not leaderboard.matches:
         warnings.append(
             "0 judge matches completed - every pairwise judging call failed; ranking "
             "fell back to objective score / sort order, not head-to-head ELO."
+        )
+        logger.warning(warnings[-1])
+    elif dropped > 0:
+        warnings.append(
+            f"{dropped}/{expected_matches} judge matches dropped (call failed or no usable "
+            f"verdict); ELO is built from the remaining {len(leaderboard.matches)}."
         )
         logger.warning(warnings[-1])
 
