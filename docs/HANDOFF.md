@@ -8,7 +8,7 @@ A multi-team agentic engine for Claude Code: parallel **Intelligence** (Crow) â†
 ## Status: shipped + verified
 - Repo: https://github.com/NAJEMWEHBE/operational-problem-solver (public, MIT)
 - Live page: https://najemwehbe.github.io/operational-problem-solver/
-- Tests: **47 passing**, `ruff` clean, CI green on Python 3.11/3.12/3.13
+- Tests: **47 passing**, `ruff` clean, CI on Python 3.11-3.14, plus a weekly fresh-install run
 - Live engine run verified end-to-end: **~$0.028 / run** (4 calls, `--cheap`), winner written to `runs/<id>/WINNER/`
 
 ## Run the engine

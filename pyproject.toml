@@ -8,6 +8,12 @@ version = "0.1.0"
 description = "Multi-team agentic engine: parallel research + execution workers, consensus stability gate, and an ELO tournament that ships the single best solution."
 readme = "README.md"
 requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 license = { text = "MIT" }
 authors = [{ name = "Najm Wahba", email = "najmwahba.98@gmail.com" }]
 keywords = ["claude", "anthropic", "agents", "elo", "tournament", "consensus", "code-generation"]
@@ -34,6 +40,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
 [tool.ruff]
