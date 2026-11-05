@@ -12,6 +12,8 @@ runs model-written code, so use it only on solutions you are willing to run.
 from __future__ import annotations
 
 import ast
+import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -74,23 +76,55 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
 
     WARNING: this executes the generated code. Opt-in via --test-cmd only."""
     cmd = test_cmd.replace("{file}", artifact.filename)
+    # Own process group / session, so a timeout can kill the whole tree: killing
+    # only the shell leaves a child (a server, a `while True:`) holding the output
+    # pipes, and on Windows communicate() would then wait for it forever.
+    group = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             shell=True,
             cwd=artifact.workspace,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=_TEST_TIMEOUT_S,
-            check=False,
+            errors="replace",
+            **group,
         )
-        passed = proc.returncode == 0
-        tail = (proc.stdout + proc.stderr)[-600:]
-        return passed, tail
-    except subprocess.TimeoutExpired:
-        return False, f"test command timed out after {_TEST_TIMEOUT_S}s"
     except (subprocess.SubprocessError, OSError) as exc:
         return False, f"test command failed to run: {exc}"
+    try:
+        out, err = proc.communicate(timeout=_TEST_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass  # a process escaped the tree; don't wait on its pipes
+        return False, f"test command timed out after {_TEST_TIMEOUT_S}s (process tree killed)"
+    return proc.returncode == 0, ((out or "") + (err or ""))[-600:]
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill `proc` and every process it started."""
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    if proc.poll() is None:
+        proc.kill()
 
 
 def evaluate(artifact: WorkerArtifact, cfg: RunConfig) -> EvalResult:

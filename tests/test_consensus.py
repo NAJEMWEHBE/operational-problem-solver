@@ -2,7 +2,9 @@
 run tiny local Python commands."""
 
 import sys
+import time
 
+from ops_solver import qa_consensus
 from ops_solver.config import RunConfig
 from ops_solver.models import EvalResult, WorkerArtifact
 from ops_solver.qa_consensus import consensus, evaluate, objective_score
@@ -88,3 +90,20 @@ def test_test_cmd_file_placeholder_points_pytest_at_the_solution(tmp_path):
     res = evaluate(art, _cfg(test_cmd=f"{PY} -m pytest -q -p no:cacheprovider {{file}}"))
     assert res.tests_ran is True
     assert res.tests_passed is True, res.test_summary
+
+
+def test_test_cmd_timeout_kills_the_whole_process_tree(tmp_path, monkeypatch):
+    # The shell starts python, which starts a grandchild that holds the output
+    # pipes for 20 s. A timeout must not wait for it.
+    monkeypatch.setattr(qa_consensus, "_TEST_TIMEOUT_S", 2)
+    grandchild = (
+        "import subprocess, sys; "
+        "subprocess.run([sys.executable, '-c', 'import time; time.sleep(20)'])"
+    )
+    art = _artifact(tmp_path, "x = 1\n")
+    start = time.monotonic()
+    res = evaluate(art, _cfg(test_cmd=f'{PY} -c "{grandchild}"'))
+    elapsed = time.monotonic() - start
+    assert res.tests_passed is False
+    assert "timed out" in res.test_summary
+    assert elapsed < 10, f"timeout took {elapsed:.1f}s: the child tree was not killed"
