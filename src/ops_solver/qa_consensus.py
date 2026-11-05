@@ -12,6 +12,7 @@ runs model-written code, so use it only on solutions you are willing to run.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import signal
 import subprocess
@@ -49,17 +50,28 @@ def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
     path = Path(artifact.workspace) / artifact.filename
     if lang in ("python", "py") and shutil.which("ruff") and path.exists():
         try:
+            # JSON output: one entry per issue (the default text format prints ~10
+            # lines per issue). --isolated: score every worker on ruff's defaults,
+            # not on whatever ruff config sits above the runs dir.
             proc = subprocess.run(
-                ["ruff", "check", str(path)],
+                ["ruff", "check", "--output-format", "json", "--isolated", str(path)],
                 capture_output=True,
                 check=False,
                 text=True,
                 timeout=60,
             )
             ok = proc.returncode == 0
-            issues = proc.stdout.count("\n") if not ok else 0
+            try:
+                found = json.loads(proc.stdout or "[]")
+            except json.JSONDecodeError:
+                return True, False, 0.5, f"linter output unreadable: {(proc.stderr or proc.stdout)[:400]}"
+            issues = len(found)
             score = 1.0 if ok else max(0.0, 1.0 - 0.05 * issues)
-            return True, ok, score, (proc.stdout or proc.stderr)[:500]
+            summary = "; ".join(
+                f"{d.get('code')} line {d.get('location', {}).get('row')}: {d.get('message')}"
+                for d in found
+            )
+            return True, ok, score, (summary or proc.stderr)[:500]
         except (subprocess.SubprocessError, OSError) as exc:
             # linter present but crashed: don't award full credit (would beat a
             # file that merely had lint warnings); mark it ran-but-failed.

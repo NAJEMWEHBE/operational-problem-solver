@@ -1,8 +1,11 @@
 """QA Layer 1 consensus gate + objective scoring. Offline; the --test-cmd tests
 run tiny local Python commands."""
 
+import shutil
 import sys
 import time
+
+import pytest
 
 from ops_solver import qa_consensus
 from ops_solver.config import RunConfig
@@ -107,3 +110,19 @@ def test_test_cmd_timeout_kills_the_whole_process_tree(tmp_path, monkeypatch):
     assert res.tests_passed is False
     assert "timed out" in res.test_summary
     assert elapsed < 10, f"timeout took {elapsed:.1f}s: the child tree was not killed"
+
+
+# --- lint score counts real issues (needs ruff on PATH, as in CI) -----------
+
+
+@pytest.mark.skipif(shutil.which("ruff") is None, reason="ruff not on PATH")
+@pytest.mark.parametrize(("issues", "score"), [(1, 0.95), (2, 0.9), (3, 0.85)])
+def test_lint_score_drops_per_issue_and_ignores_the_users_ruff_config(tmp_path, issues, score):
+    # a project config above the runs dir that would silence F821
+    (tmp_path / "pyproject.toml").write_text('[tool.ruff.lint]\nignore = ["F821"]\n', encoding="utf-8")
+    ws = tmp_path / "runs" / "Finch-01"
+    ws.mkdir(parents=True)
+    code = "".join(f"a{i} = undefined_{i}\n" for i in range(issues))  # one F821 per line
+    res = evaluate(_artifact(ws, code), RunConfig(problem="x", lint=True))
+    assert res.lint_ran is True and res.lint_ok is False
+    assert res.lint_score == score
