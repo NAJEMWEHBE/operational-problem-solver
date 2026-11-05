@@ -156,11 +156,22 @@ def _json_instruction(schema: type[BaseModel]) -> str:
 class LLM:
     """Thin async wrapper over the Anthropic Messages API."""
 
-    def __init__(self, ledger: TokenLedger | None = None, api_max_retries: int = 4) -> None:
-        import anthropic  # imported lazily so offline tests need no SDK/key
-
+    def __init__(
+        self,
+        ledger: TokenLedger | None = None,
+        api_max_retries: int = 4,
+        *,
+        client: Any | None = None,
+    ) -> None:
+        """`client` is an `anthropic.AsyncAnthropic` (or compatible) instance.
+        Pass one to control transport, auth or retries (tests inject a client over
+        an offline mock transport); by default one is built from the environment."""
         self.ledger = ledger or TokenLedger()
-        self.client = anthropic.AsyncAnthropic(max_retries=api_max_retries)
+        if client is None:
+            import anthropic  # imported lazily so offline tests need no SDK/key
+
+            client = anthropic.AsyncAnthropic(max_retries=api_max_retries)
+        self.client = client
 
     async def _complete_raw(
         self,
