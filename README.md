@@ -104,7 +104,7 @@ macOS / Linux: `source .venv/bin/activate` and `cp .env.example .env`.
 ops-solve "solve: write a Python is_prime(n) with a few tests" --workers 2 --cheap
 
 # Gate consensus on real tests (EXECUTES the generated code — see Security):
-ops-solve "solve: write a Python is_prime(n) with tests" --workers 4 --test-cmd "pytest -q"
+ops-solve "solve: write a Python is_prime(n) with tests" --workers 4 --test-cmd "pytest -q {file}"
 
 # Write the winning file somewhere:
 ops-solve "solve: a CLI that reverses stdin" --out ./reverse.py
@@ -112,6 +112,17 @@ ops-solve "solve: a CLI that reverses stdin" --out ./reverse.py
 
 Options: `--workers/-w`, `--intel/-i`, `--rounds/-r`, `--reloops`, `--test-cmd`,
 `--out`, `--cheap`, `--lang`.
+
+**How `--test-cmd` runs.** The command runs once per worker, inside that worker's
+folder (`runs/<run-id>/Finch-NN/`), which holds only the solution file
+(`solution.py`, `solution.js`, ...). `{file}` in the command is replaced with that
+file name. pytest does not collect `solution.py` on its own, so a bare
+`pytest -q` finds no tests (exit 5) and fails every worker:
+
+- tests written inside the solution: `--test-cmd "pytest -q {file}"`
+- your own tests: pass their absolute path, e.g.
+  `--test-cmd "python -m pytest -q /abs/path/to/tests"`; `python -m` puts the
+  worker folder on `sys.path`, so the tests can `import solution`.
 
 Each run writes to `runs/<run-id>/`:
 - `Finch-NN/` — each worker's isolated solution + notes
@@ -141,7 +152,7 @@ rigorous). See [SKILL.md](.claude/skills/problem-solver/SKILL.md).
    deps, available linters). Parallel Crows interpret them into one
    `ContextManifest`.
 2. **Execution (Finch):** parallel isolated workers — same manifest, distinct
-   strategy + temperature — each emit a complete standalone solution into its own
+   strategy prompt — each emit a complete standalone solution into its own
    workspace.
 3. **QA Layer 1 (Consensus):** syntax-check + lint + optional tests per artifact.
    If `< 50%` are stable, mutate prompts and re-loop Execution.

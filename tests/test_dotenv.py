@@ -34,3 +34,21 @@ def test_strips_surrounding_quotes(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text('ANTHROPIC_API_KEY="sk-quoted"\n', encoding="utf-8")
     _load_dotenv(tmp_path)
     assert os.environ["ANTHROPIC_API_KEY"] == "sk-quoted"
+
+
+def test_inline_comment_is_not_part_of_the_value(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-test-abc   # my work key\n", encoding="utf-8")
+    _load_dotenv(tmp_path)
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-test-abc"
+
+
+def test_hash_inside_quotes_or_without_space_is_kept(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    (tmp_path / ".env").write_text(
+        'ANTHROPIC_API_KEY="sk-a #b"  # note\nANTHROPIC_BASE_URL=http://h/x#frag\n', encoding="utf-8"
+    )
+    _load_dotenv(tmp_path)
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-a #b"
+    assert os.environ["ANTHROPIC_BASE_URL"] == "http://h/x#frag"

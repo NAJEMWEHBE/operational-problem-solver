@@ -33,7 +33,7 @@ problem ──► env_probe.probe(cwd)                     # deterministic local
 
 | Module | Responsibility |
 |---|---|
-| `config.py` | `RunConfig`, model tiers, price table, sampling rules |
+| `config.py` | `RunConfig`, model tiers, price table |
 | `models.py` | Pydantic types: `ContextManifest`, `WorkerArtifact`, `EvalResult`, `JudgeVerdict`, `MatchResult`, `Leaderboard`, `RunReport` |
 | `llm.py` | Async Anthropic adapter, prompt caching, structured output, `fan_out` cache-warming, `TokenLedger` cost accounting |
 | `env_probe.py` | Deterministic local-environment snapshot |

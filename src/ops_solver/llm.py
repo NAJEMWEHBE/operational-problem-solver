@@ -21,7 +21,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from .config import DEFAULT_PRICE, PRICES, supports_sampling
+from .config import DEFAULT_PRICE, PRICES
 from .models import JudgeVerdict
 
 T = TypeVar("T", bound=BaseModel)
@@ -73,19 +73,47 @@ class TokenLedger:
 # --- Concurrency ----------------------------------------------------------
 
 
-async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> list[Any]:
+class FanOutResults(list):
+    """`fan_out`'s result: a plain list aligned to the input thunks (a failure is
+    `None` in its slot), plus `.errors`, the exceptions behind those Nones."""
+
+    def __init__(self, items=(), errors: list[BaseException] | None = None) -> None:
+        super().__init__(items)
+        self.errors: list[BaseException] = list(errors or [])
+
+
+def describe_errors(errors: list[BaseException]) -> str:
+    """One-line cause for a phase that lost calls: ' First error (2 failed): TypeError: ...'."""
+    if not errors:
+        return ""
+    first = errors[0]
+    return f" First error ({len(errors)} failed): {type(first).__name__}: {str(first)[:300]}"
+
+
+async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> FanOutResults:
     """Run async thunks; warm the shared cache by awaiting the first, then
-    fan the rest out concurrently. Failures become `None` (aligned to input)."""
+    fan the rest out concurrently. Failures become `None` (aligned to input);
+    each one is logged with its cause and kept in the result's `.errors`."""
+    out = FanOutResults()
     if not thunks:
-        return []
-    out: list[Any] = []
+        return out
+
+    def failed(i: int, exc: BaseException) -> None:
+        logger.warning("call %d/%d failed: %s: %s", i + 1, len(thunks), type(exc).__name__, exc)
+        out.errors.append(exc)
+        out.append(None)
+
     try:
         out.append(await thunks[0]())
-    except Exception:  # noqa: BLE001 - any worker failure becomes a None result; the gate scores the rest
-        out.append(None)
+    except Exception as exc:  # noqa: BLE001 - a failed call becomes a None result; the gate scores the rest
+        failed(0, exc)
     if len(thunks) > 1:
         rest = await asyncio.gather(*(t() for t in thunks[1:]), return_exceptions=True)
-        out.extend(None if isinstance(r, Exception) else r for r in rest)
+        for i, r in enumerate(rest, start=1):
+            if isinstance(r, BaseException):
+                failed(i, r)
+            else:
+                out.append(r)
     return out
 
 
@@ -153,25 +181,57 @@ def _json_instruction(schema: type[BaseModel]) -> str:
 # --- The adapter ----------------------------------------------------------
 
 
+def _deadline_s(max_tokens: int) -> float:
+    """Per-attempt deadline sized to the output budget: 60 s plus 40 tokens/s
+    (well below real output speed), capped at the SDK's own 10-minute default.
+    A stuck call fails in minutes instead of 10 min x every retry."""
+    return min(600.0, 60.0 + max_tokens / 40.0)
+
+
 class LLM:
     """Thin async wrapper over the Anthropic Messages API."""
 
-    def __init__(self, ledger: TokenLedger | None = None, api_max_retries: int = 4) -> None:
-        import anthropic  # imported lazily so offline tests need no SDK/key
-
-        self.ledger = ledger or TokenLedger()
-        self.client = anthropic.AsyncAnthropic(max_retries=api_max_retries)
-
-    async def _complete_raw(
+    def __init__(
         self,
+        ledger: TokenLedger | None = None,
+        api_max_retries: int = 4,
         *,
-        model: str,
-        system: list[dict] | str,
-        user: str,
-        max_tokens: int,
-        temperature: float | None = None,
-        thinking: bool = False,
-    ) -> str:
+        client: Any | None = None,
+        request_timeout_s: float | None = None,
+    ) -> None:
+        """`client` is an `anthropic.AsyncAnthropic` (or compatible) instance.
+        Pass one to control transport, auth or retries (tests inject a client over
+        an offline mock transport); by default one is built from the environment.
+
+        `request_timeout_s` fixes the per-attempt deadline; by default it scales
+        with each call's max_tokens (see `_deadline_s`)."""
+        self.ledger = ledger or TokenLedger()
+        self.request_timeout_s = request_timeout_s
+        if client is None:
+            import anthropic  # imported lazily so offline tests need no SDK/key
+
+            client = anthropic.AsyncAnthropic(max_retries=api_max_retries)
+        self.client = client
+
+    async def _send(self, kwargs: dict[str, Any]) -> Any:
+        """One Messages API call; usage is recorded before anything is parsed."""
+        timeout = self.request_timeout_s or _deadline_s(kwargs["max_tokens"])
+        resp = await self.client.messages.create(**kwargs, timeout=timeout)
+        self.ledger.record(kwargs["model"], resp.usage)
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            # thinking tokens count toward max_tokens; a cut-off reply usually
+            # means no usable structured verdict
+            logger.warning(
+                "%s reply stopped at max_tokens=%d; the output is cut off (raise the budget)",
+                kwargs["model"],
+                kwargs["max_tokens"],
+            )
+        return resp
+
+    @staticmethod
+    def _request(
+        *, model: str, system: list[dict] | str, user: str, max_tokens: int, thinking: bool
+    ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -180,11 +240,7 @@ class LLM:
         }
         if thinking:
             kwargs["thinking"] = {"type": "adaptive"}
-        elif temperature is not None and supports_sampling(model):
-            kwargs["temperature"] = temperature
-        resp = await self.client.messages.create(**kwargs)
-        self.ledger.record(model, resp.usage)
-        return _text_of(resp)
+        return kwargs
 
     async def complete(
         self,
@@ -193,17 +249,12 @@ class LLM:
         system: list[dict] | str,
         user: str,
         max_tokens: int = 4096,
-        temperature: float | None = None,
         thinking: bool = False,
     ) -> str:
-        return await self._complete_raw(
-            model=model,
-            system=system,
-            user=user,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            thinking=thinking,
+        req = self._request(
+            model=model, system=system, user=user, max_tokens=max_tokens, thinking=thinking
         )
+        return _text_of(await self._send(req))
 
     async def structured(
         self,
@@ -213,48 +264,42 @@ class LLM:
         user: str,
         schema: type[T],
         max_tokens: int = 1500,
-        temperature: float | None = None,
         thinking: bool = False,
     ) -> T | None:
-        """Return a validated `schema` instance.
+        """Return a validated `schema` instance, or None if the reply doesn't fit it.
 
-        Primary path is the native structured-output API (one call). Only if that
-        call *raises* (e.g. an SDK build without `messages.parse`) do we make a
-        single fallback call with instruction-guided JSON extraction. We never make
-        a second API call just because the first returned unusable output, and we
-        never record usage twice for one call.
+        One call with native structured output (`output_config.format`), validated
+        locally. Only if the API refuses that request (400, e.g. a schema it can't
+        compile) is a single fallback call made with an instruction-guided JSON
+        prompt. Auth, rate-limit, server and connection errors propagate to the
+        caller, and unusable output never triggers a second call.
         """
-        messages = [{"role": "user", "content": user}]
-        kw: dict[str, Any] = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": messages,
-        }
-        if thinking:
-            kw["thinking"] = {"type": "adaptive"}
-        elif temperature is not None and supports_sampling(model):
-            kw["temperature"] = temperature  # keep the per-worker diversity gradient
+        import anthropic
 
-        try:
-            resp = await self.client.messages.parse(output_format=schema, **kw)
-            self.ledger.record(model, resp.usage)
-            parsed = getattr(resp, "parsed_output", None)
-            if parsed is not None:
-                return parsed
-            return _coerce(_text_of(resp), schema)
-        except Exception as exc:  # noqa: BLE001 - logged, then the JSON fallback below
-            logger.warning("structured(): native parse failed, falling back to JSON: %s", exc)
-
-        text = await self._complete_raw(
-            model=model,
-            system=system,
-            user=user + "\n\n" + _json_instruction(schema),
-            max_tokens=max_tokens,
-            temperature=temperature,
-            thinking=thinking,
+        req = self._request(
+            model=model, system=system, user=user, max_tokens=max_tokens, thinking=thinking
         )
-        return _coerce(text, schema)
+        req["output_config"] = {
+            "format": {"type": "json_schema", "schema": anthropic.transform_schema(schema)}
+        }
+        try:
+            resp = await self._send(req)
+        except anthropic.BadRequestError as exc:
+            logger.warning(
+                "structured(): API refused the %s output schema (%s); retrying once with a "
+                "JSON instruction",
+                schema.__name__,
+                exc,
+            )
+            fallback = self._request(
+                model=model,
+                system=system,
+                user=user + "\n\n" + _json_instruction(schema),
+                max_tokens=max_tokens,
+                thinking=thinking,
+            )
+            resp = await self._send(fallback)
+        return _coerce(_text_of(resp), schema)
 
     async def judge(
         self,
@@ -262,7 +307,7 @@ class LLM:
         model: str,
         system: list[dict] | str,
         user: str,
-        max_tokens: int = 1500,
+        max_tokens: int = 16000,
     ) -> JudgeVerdict | None:
         verdict = await self.structured(
             model=model,

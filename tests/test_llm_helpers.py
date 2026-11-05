@@ -103,3 +103,11 @@ def test_coerce_valid_and_invalid():
 def test_json_instruction_lists_fields():
     s = _json_instruction(JudgeVerdict)
     assert "winner" in s and "a_score" in s
+
+
+def test_fan_out_logs_each_failure_with_its_cause(caplog):
+    with caplog.at_level("WARNING", logger="ops_solver.llm"):
+        asyncio.run(fan_out([lambda: _boom(), lambda: _ret("b"), lambda: _boom()]))
+    failures = [r for r in caplog.records if "ValueError" in r.getMessage()]
+    assert len(failures) == 2
+    assert "x" in failures[0].getMessage()

@@ -35,3 +35,22 @@ def test_probe_collects_files(tmp_path):
     assert out["language"] == "python"
     assert "main.py" in out["file_tree"]
     assert "rich" in out["dependencies"] and "typer" in out["dependencies"]
+
+
+def test_parent_folder_named_like_a_skip_dir_does_not_hide_the_project(tmp_path):
+    for parent in ("build", "runs", "dist", "venv"):
+        proj = tmp_path / parent / "myproj"
+        proj.mkdir(parents=True)
+        (proj / "main.py").write_text("print(1)\n", encoding="utf-8")
+        out = probe(proj)
+        assert out["file_tree"] == ["main.py"], parent
+        assert out["language"] == "python", parent
+
+
+def test_skip_dirs_inside_the_project_are_not_listed(tmp_path):
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    for skip in ("node_modules/pkg", ".git/objects", "build/lib"):
+        d = tmp_path / skip
+        d.mkdir(parents=True)
+        (d / "junk.js").write_text("//\n", encoding="utf-8")
+    assert probe(tmp_path)["file_tree"] == ["app.py"]

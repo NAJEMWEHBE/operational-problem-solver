@@ -1,0 +1,91 @@
+"""CLI rendering: model- and user-written text must print literally."""
+
+import io
+
+from rich.console import Console
+
+from ops_solver import cli
+from ops_solver.models import (
+    ContextManifest,
+    EvalResult,
+    Leaderboard,
+    LeaderboardEntry,
+    RunReport,
+    WorkerArtifact,
+)
+
+
+def _report(problem: str, constraint: str, strategy: str) -> RunReport:
+    return RunReport(
+        run_id="run-test",
+        problem=problem,
+        manifest=ContextManifest(problem=problem, constraints=[constraint], dependencies=["[bold]x"]),
+        artifacts=[
+            WorkerArtifact(worker_id="Finch-01", strategy=strategy, language="python",
+                           filename="solution.py", code="x = 1")
+        ],
+        evals=[EvalResult(worker_id="Finch-01", stable=True, syntax_ok=True)],
+        leaderboard=Leaderboard(
+            entries=[LeaderboardEntry(worker_id="Finch-01", elo=1000.0)], winner="Finch-01"
+        ),
+        winner_id="Finch-01",
+        winner_path="runs/[x]/WINNER",
+        warnings=["odd [/] warning"],
+    )
+
+
+def _render_text(report: RunReport, monkeypatch) -> str:
+    buf = io.StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=buf, width=300, color_system=None))
+    cli._render(report)
+    return buf.getvalue()
+
+
+def test_render_prints_markup_like_text_literally(monkeypatch):
+    out = _render_text(
+        _report("parse close tags [/] safely", "[red]must[/red] stay", "[i]odd"), monkeypatch
+    )
+    assert "parse close tags [/] safely" in out
+    assert "[red]must[/red] stay" in out
+    assert "[bold]x" in out
+    assert "[i]odd" in out
+    assert "runs/[x]/WINNER" in out
+    assert "odd [/] warning" in out
+
+
+# --- credentials check before a paid run ------------------------------------
+
+
+def _no_credentials(monkeypatch, tmp_path):
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE"):
+        monkeypatch.delenv(var, raising=False)
+    empty = tmp_path / "anthropic-config"
+    empty.mkdir()
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(empty))  # no on-disk profile
+    monkeypatch.chdir(tmp_path)  # no .env
+
+
+def _invoke(monkeypatch):
+    from typer.testing import CliRunner
+
+    async def fake_solve(cfg):
+        raise RuntimeError("stopped before any API call")
+
+    monkeypatch.setattr(cli, "solve", fake_solve)
+    return CliRunner().invoke(cli.app, ["solve: x"])
+
+
+def test_refuses_to_run_without_any_credentials(monkeypatch, tmp_path):
+    _no_credentials(monkeypatch, tmp_path)
+    result = _invoke(monkeypatch)
+    assert result.exit_code == 2
+    assert "ANTHROPIC_API_KEY" in result.output
+
+
+def test_runs_with_sdk_discoverable_credentials_instead_of_an_api_key(monkeypatch, tmp_path):
+    _no_credentials(monkeypatch, tmp_path)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-dummy-token")
+    result = _invoke(monkeypatch)
+    assert result.exit_code == 1
+    assert "stopped before any API call" in result.output
+    assert "test-dummy-token" not in result.output

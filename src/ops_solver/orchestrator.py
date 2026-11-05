@@ -2,8 +2,8 @@
 Phase III (QA consensus + ELO tournament) -> ship the winner.
 
 Implements the consensus re-loop: if fewer than `stability_threshold` of the
-workers produce stable output, the prompt variables are mutated (temperature
-bumped, failure feedback injected) and Phase II re-runs, up to `max_reloops`.
+workers produce stable output, the failure feedback is injected into the
+worker prompts and Phase II re-runs, up to `max_reloops`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import elo, env_probe, execution, intelligence, qa_consensus
 from .config import RunConfig
-from .llm import LLM, TokenLedger
+from .llm import LLM, TokenLedger, describe_errors
 from .models import RunReport
 
 logger = logging.getLogger("ops_solver.orchestrator")
@@ -24,7 +24,11 @@ logger = logging.getLogger("ops_solver.orchestrator")
 async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
     """Run one full solve. Pass `llm` to inject a (mock) adapter in tests."""
     if llm is None:
-        llm = LLM(ledger=TokenLedger(), api_max_retries=cfg.api_max_retries)
+        llm = LLM(
+            ledger=TokenLedger(),
+            api_max_retries=cfg.api_max_retries,
+            request_timeout_s=cfg.api_timeout_s,
+        )
     ledger = llm.ledger
 
     run_id = time.strftime("run-%Y%m%d-%H%M%S")
@@ -70,7 +74,7 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         raise RuntimeError(
             f"Execution phase produced 0 solutions out of {cfg.exec_workers} workers "
             f"({cfg.worker_model}) after {attempts} attempt(s). All workers failed or "
-            f"returned empty output - check ANTHROPIC_API_KEY and rate limits."
+            f"returned empty output.{describe_errors(getattr(artifacts, 'errors', []))}"
         )
 
     # Phase III — ELO tournament over the stable survivors (or all, if none stable)
@@ -82,10 +86,18 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         if a.worker_id in eval_by_id
     }
     leaderboard = await elo.run_tournament(llm, cfg, competing, manifest, objective)
-    if len(competing) >= 2 and not leaderboard.matches:
+    expected_matches = len(elo.pairings([a.worker_id for a in competing], cfg.elo_rounds)) if len(competing) >= 2 else 0
+    dropped = expected_matches - len(leaderboard.matches)
+    if expected_matches and not leaderboard.matches:
         warnings.append(
             "0 judge matches completed - every pairwise judging call failed; ranking "
             "fell back to objective score / sort order, not head-to-head ELO."
+        )
+        logger.warning(warnings[-1])
+    elif dropped > 0:
+        warnings.append(
+            f"{dropped}/{expected_matches} judge matches dropped (call failed or no usable "
+            f"verdict); ELO is built from the remaining {len(leaderboard.matches)}."
         )
         logger.warning(warnings[-1])
 
