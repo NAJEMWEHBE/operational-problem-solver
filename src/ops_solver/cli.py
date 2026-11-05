@@ -8,6 +8,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -42,13 +43,16 @@ def _load_dotenv(cwd: Path) -> None:
 
 
 def _render(report: RunReport) -> None:
+    # Every dynamic string (problem text, model-written manifest, paths) goes
+    # through escape(): rich would otherwise parse "[red]" as a style or raise
+    # MarkupError on "[/]" after the paid run.
     m = report.manifest
     console.print(
         Panel(
-            f"[bold]{m.problem}[/]\n\n"
-            f"language: {m.language}\n"
-            f"dependencies: {', '.join(m.dependencies) or 'none'}\n"
-            f"constraints: {'; '.join(m.constraints) or 'none'}",
+            f"[bold]{escape(m.problem)}[/]\n\n"
+            f"language: {escape(m.language)}\n"
+            f"dependencies: {escape(', '.join(m.dependencies) or 'none')}\n"
+            f"constraints: {escape('; '.join(m.constraints) or 'none')}",
             title="Context Manifest (Intelligence team)",
             border_style="cyan",
         )
@@ -60,8 +64,8 @@ def _render(report: RunReport) -> None:
     strat = {a.worker_id: a.strategy for a in report.artifacts}
     for e in report.evals:
         ev.add_row(
-            e.worker_id,
-            (strat.get(e.worker_id, "")[:28]),
+            escape(e.worker_id),
+            escape(strat.get(e.worker_id, "")[:28]),
             ("[green]ok[/]" if e.syntax_ok else "[red]fail[/]") if e.syntax_checked else "[dim]n/a[/]",
             ("[green]ok[/]" if e.lint_ok else "[red]issues[/]") if e.lint_ran else "-",
             ("[green]pass[/]" if e.tests_passed else "[red]fail[/]") if e.tests_ran else "-",
@@ -76,7 +80,7 @@ def _render(report: RunReport) -> None:
         + ("" if verified else "  [dim](syntax-only - pass --test-cmd to verify behaviour)[/]")
     )
     for w in report.warnings:
-        console.print(f"[yellow]! {w}[/]")
+        console.print(f"[yellow]! {escape(w)}[/]")
 
     lb = Table(title="QA Layer 2 — ELO tournament leaderboard", border_style="magenta")
     for col in ("#", "Worker", "ELO", "W-L-D", "Objective", "Final"):
@@ -85,7 +89,7 @@ def _render(report: RunReport) -> None:
         mark = " [bold green](WINNER)[/]" if e.worker_id == report.winner_id else ""
         lb.add_row(
             str(rank),
-            e.worker_id + mark,
+            escape(e.worker_id) + mark,
             f"{e.elo:.0f}",
             f"{e.wins}-{e.losses}-{e.draws}",
             f"{e.objective_score:.2f}",
@@ -95,8 +99,8 @@ def _render(report: RunReport) -> None:
 
     console.print(
         Panel(
-            f"winner: [bold green]{report.winner_id or 'none'}[/]\n"
-            f"shipped to: {report.winner_path or '(none)'}\n"
+            f"winner: [bold green]{escape(report.winner_id or 'none')}[/]\n"
+            f"shipped to: {escape(report.winner_path or '(none)')}\n"
             f"calls: {report.tokens.get('calls', 0)}   "
             f"estimated cost: [bold]${report.cost_usd:.4f}[/]",
             title="Result",
@@ -168,7 +172,7 @@ def main(
     except Exception as exc:  # surface a clean message instead of a traceback wall
         if debug:
             raise
-        console.print(f"[red]Run failed:[/] {type(exc).__name__}: {exc}")
+        console.print(f"[red]Run failed:[/] {type(exc).__name__}: {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     _render(report)
