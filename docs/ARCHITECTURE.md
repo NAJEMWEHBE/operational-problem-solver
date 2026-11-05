@@ -1,5 +1,30 @@
 # Architecture
 
+## Teams
+
+A central orchestrator commands three worker teams; each runs several instances
+in parallel.
+
+```
+                 [ Central Orchestrator ]
+                /          |             \
+   [ Intelligence ]   [ Execution ]   [ Quality Assurance ]
+      Crow x2            Finch x4       Consensus + ELO
+```
+
+- **Intelligence (Crow-Alpha, Crow-Beta, ...)** reads the probed directory
+  (language, dependencies, file tree, README) from distinct angles and returns
+  structured drafts, merged into one **Context Manifest** (dependencies,
+  constraints, parameters, risks).
+- **Execution (Finch-01 .. Finch-NN)** gets the same manifest and one distinct
+  strategy prompt each, and writes a standalone solution into its own folder.
+  Isolation means separate folders and no shared state, not OS sandboxing.
+- **Quality Assurance** runs Layer 1, the consensus gate (syntax, lint, optional
+  `--test-cmd`; re-loop Execution if fewer than 50% are stable), then Layer 2, the
+  ELO tournament: pairwise Opus judging on correctness, cleanliness, speed and
+  footprint, blended with the objective scores into a leaderboard. The top entry
+  ships.
+
 ## Data flow
 
 ```
@@ -15,13 +40,13 @@ problem ──► env_probe.probe(cwd)                     # deterministic local
         execution.run_workers            │            # Phase II — Finch x M (parallel)
                 │   M WorkerArtifacts (isolated dirs)
                 ▼
-        qa_consensus.evaluate (per artifact)          # Phase III, Layer 1
+        qa_consensus.evaluate_all (concurrent)        # Phase III, Layer 1
                 │   EvalResult[]  → consensus(threshold)
                 │
-        ratio < threshold? ──yes──► mutate prompts, re-loop Phase II (≤ max_reloops)
+        ratio < threshold? ──yes──► add failure feedback, re-loop Phase II (≤ max_reloops)
                 │ no / exhausted
                 ▼
-        elo.run_tournament  ──► pairwise Opus judge (cache-warmed fan-out)
+        elo.run_tournament  ──► pairwise Opus judge, both orders (cache-warmed fan-out)
                 │   EloEngine: expected_score / update_pair
                 │   final = blend·norm(elo) + (1−blend)·objective
                 ▼
@@ -35,7 +60,7 @@ problem ──► env_probe.probe(cwd)                     # deterministic local
 |---|---|
 | `config.py` | `RunConfig`, model tiers, price table |
 | `models.py` | Pydantic types: `ContextManifest`, `WorkerArtifact`, `EvalResult`, `JudgeVerdict`, `MatchResult`, `Leaderboard`, `RunReport` |
-| `llm.py` | Async Anthropic adapter, prompt caching, structured output, `fan_out` cache-warming, `TokenLedger` cost accounting |
+| `llm.py` | Async Anthropic adapter (injectable `client`, per-call deadline, in-flight cap), prompt caching, structured output, `fan_out` cache-warming and error reporting, `TokenLedger` cost accounting |
 | `env_probe.py` | Deterministic local-environment snapshot |
 | `intelligence.py` | Crow team → merged `ContextManifest` |
 | `execution.py` | Finch team → isolated `WorkerArtifact[]`; solution extraction |
@@ -59,6 +84,11 @@ R_A' = R_A + K·(S_A − E_A)        # S_A ∈ {1, 0.5, 0}; K = 32; start = 1000
 
 Judging is fanned out concurrently (cache-warmed: fire one, await it, then the
 rest), and the outcomes are folded into ratings in a fixed, deterministic order.
+Each pair is judged in both A/B orders and averaged, which cancels the judge's
+position bias; if one order fails, the other still counts. Extra `--rounds`
+re-judge every pair with a different emphasis (edge cases, readability,
+performance), since the API takes no sampling parameters. `LLM` caps API calls in
+flight (`--concurrency`, default 8) across all phases.
 
 **Final score** blends normalized ELO with the objective signal:
 

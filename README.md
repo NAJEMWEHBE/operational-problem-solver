@@ -146,8 +146,8 @@ Copy the skill into a project so Claude Code discovers it:
 
 Then `/problem-solver` or say `solve: <problem>`. With the engine installed and a
 key present, the skill shells out to `ops-solve` (deterministic ELO). Otherwise it
-orchestrates native Task subagents in-session (ELO reasoned by the model, less
-rigorous). See [SKILL.md](.claude/skills/problem-solver/SKILL.md).
+orchestrates subagents in-session with the Agent tool (ELO reasoned by the model,
+less rigorous). See [SKILL.md](.claude/skills/problem-solver/SKILL.md).
 
 ---
 
