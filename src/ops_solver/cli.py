@@ -142,6 +142,9 @@ def main(
     intel: int = typer.Option(2, "--intel", "-i", help="Intelligence workers (Crow)."),
     rounds: int = typer.Option(1, "--rounds", "-r", help="ELO tournament round-robin passes."),
     reloops: int = typer.Option(1, "--reloops", help="Max consensus re-loops."),
+    concurrency: int = typer.Option(
+        8, "--concurrency", "-c", help="Max API calls in flight at once (lower it on 429s)."
+    ),
     test_cmd: str | None = typer.Option(
         None,
         "--test-cmd",
@@ -178,6 +181,7 @@ def main(
         exec_workers=max(1, workers),
         elo_rounds=max(1, rounds),
         max_reloops=max(0, reloops),
+        max_concurrency=max(1, concurrency),
         test_cmd=test_cmd,
         out_path=out,
         force=force,

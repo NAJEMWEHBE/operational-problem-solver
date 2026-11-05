@@ -28,6 +28,7 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
             ledger=TokenLedger(),
             api_max_retries=cfg.api_max_retries,
             request_timeout_s=cfg.api_timeout_s,
+            max_concurrency=cfg.max_concurrency,
         )
     ledger = llm.ledger
 

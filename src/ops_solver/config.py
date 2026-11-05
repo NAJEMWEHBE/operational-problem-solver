@@ -77,6 +77,9 @@ class RunConfig:
     out_path: Path | None = None
     force: bool = False               # allow --out to overwrite an existing file
 
+    # API calls in flight at once, across all phases
+    max_concurrency: int = 8
+
     # SDK-level API retries (429 / 5xx auto-retried by the client)
     api_max_retries: int = 4
     # Per-attempt deadline in seconds; None scales it with each call's max_tokens.
