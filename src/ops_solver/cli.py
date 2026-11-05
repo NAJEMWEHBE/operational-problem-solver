@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -113,10 +112,10 @@ def main(
     intel: int = typer.Option(2, "--intel", "-i", help="Intelligence workers (Crow)."),
     rounds: int = typer.Option(1, "--rounds", "-r", help="ELO tournament round-robin passes."),
     reloops: int = typer.Option(1, "--reloops", help="Max consensus re-loops."),
-    test_cmd: Optional[str] = typer.Option(
+    test_cmd: str | None = typer.Option(
         None, "--test-cmd", help="Shell command to test each solution (EXECUTES generated code)."
     ),
-    out: Optional[Path] = typer.Option(None, "--out", help="Write the winning solution file here."),
+    out: Path | None = typer.Option(None, "--out", help="Write the winning solution file here."),
     force: bool = typer.Option(False, "--force", help="Allow --out to overwrite an existing file."),
     cheap: bool = typer.Option(False, "--cheap", help="Use Haiku workers (cheaper, less diverse)."),
     lang: str = typer.Option("auto", "--lang", help="Force a language instead of auto-detect."),

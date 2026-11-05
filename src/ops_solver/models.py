@@ -3,7 +3,7 @@ for the judge's structured output."""
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -92,7 +92,7 @@ class LeaderboardEntry(BaseModel):
 
 class Leaderboard(BaseModel):
     entries: list[LeaderboardEntry] = Field(default_factory=list)
-    winner: Optional[str] = None
+    winner: str | None = None
     matches: list[MatchResult] = Field(default_factory=list)
 
 
@@ -103,8 +103,8 @@ class RunReport(BaseModel):
     artifacts: list[WorkerArtifact]
     evals: list[EvalResult]
     leaderboard: Leaderboard
-    winner_id: Optional[str] = None
-    winner_path: Optional[str] = None
+    winner_id: str | None = None
+    winner_path: str | None = None
     attempts: int = 1
     consensus_ratio: float = 0.0
     consensus_met: bool = False

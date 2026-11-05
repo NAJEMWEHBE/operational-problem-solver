@@ -8,9 +8,9 @@ from ops_solver.models import JudgeVerdict
 
 
 def _usage(**kw):
-    base = dict(
-        input_tokens=0, output_tokens=0, cache_creation_input_tokens=0, cache_read_input_tokens=0
-    )
+    base = {
+        "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0
+    }
     base.update(kw)
     return SimpleNamespace(**base)
 

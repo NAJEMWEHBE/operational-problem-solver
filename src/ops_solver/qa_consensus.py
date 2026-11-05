@@ -50,6 +50,7 @@ def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
             proc = subprocess.run(
                 ["ruff", "check", str(path)],
                 capture_output=True,
+                check=False,
                 text=True,
                 timeout=60,
             )
@@ -76,6 +77,7 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=_TEST_TIMEOUT_S,
+            check=False,
         )
         passed = proc.returncode == 0
         tail = (proc.stdout + proc.stderr)[-600:]

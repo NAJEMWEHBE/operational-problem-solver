@@ -81,7 +81,7 @@ async def fan_out(thunks: list[Callable[[], Awaitable[Any]]]) -> list[Any]:
     out: list[Any] = []
     try:
         out.append(await thunks[0]())
-    except Exception:
+    except Exception:  # noqa: BLE001 - any worker failure becomes a None result; the gate scores the rest
         out.append(None)
     if len(thunks) > 1:
         rest = await asyncio.gather(*(t() for t in thunks[1:]), return_exceptions=True)
@@ -138,7 +138,7 @@ def _coerce(text: str, schema: type[T]) -> T | None:
         return None
     try:
         return schema.model_validate(data)
-    except Exception:
+    except Exception:  # noqa: BLE001 - invalid model output means "no structured result", never a crash
         return None
 
 
@@ -243,7 +243,7 @@ class LLM:
             if parsed is not None:
                 return parsed
             return _coerce(_text_of(resp), schema)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged, then the JSON fallback below
             logger.warning("structured(): native parse failed, falling back to JSON: %s", exc)
 
         text = await self._complete_raw(
