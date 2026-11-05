@@ -181,6 +181,13 @@ def _json_instruction(schema: type[BaseModel]) -> str:
 # --- The adapter ----------------------------------------------------------
 
 
+def _deadline_s(max_tokens: int) -> float:
+    """Per-attempt deadline sized to the output budget: 60 s plus 40 tokens/s
+    (well below real output speed), capped at the SDK's own 10-minute default.
+    A stuck call fails in minutes instead of 10 min x every retry."""
+    return min(600.0, 60.0 + max_tokens / 40.0)
+
+
 class LLM:
     """Thin async wrapper over the Anthropic Messages API."""
 
@@ -190,11 +197,16 @@ class LLM:
         api_max_retries: int = 4,
         *,
         client: Any | None = None,
+        request_timeout_s: float | None = None,
     ) -> None:
         """`client` is an `anthropic.AsyncAnthropic` (or compatible) instance.
         Pass one to control transport, auth or retries (tests inject a client over
-        an offline mock transport); by default one is built from the environment."""
+        an offline mock transport); by default one is built from the environment.
+
+        `request_timeout_s` fixes the per-attempt deadline; by default it scales
+        with each call's max_tokens (see `_deadline_s`)."""
         self.ledger = ledger or TokenLedger()
+        self.request_timeout_s = request_timeout_s
         if client is None:
             import anthropic  # imported lazily so offline tests need no SDK/key
 
@@ -203,7 +215,8 @@ class LLM:
 
     async def _send(self, kwargs: dict[str, Any]) -> Any:
         """One Messages API call; usage is recorded before anything is parsed."""
-        resp = await self.client.messages.create(**kwargs)
+        timeout = self.request_timeout_s or _deadline_s(kwargs["max_tokens"])
+        resp = await self.client.messages.create(**kwargs, timeout=timeout)
         self.ledger.record(kwargs["model"], resp.usage)
         if getattr(resp, "stop_reason", None) == "max_tokens":
             # thinking tokens count toward max_tokens; a cut-off reply usually

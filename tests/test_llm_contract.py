@@ -158,3 +158,36 @@ async def test_a_reply_cut_off_at_max_tokens_is_logged(caplog):
         out = await llm.judge(model="claude-opus-4-8", system="s", user="u", max_tokens=1500)
     assert out is None
     assert any("max_tokens" in r.getMessage() and "1500" in r.getMessage() for r in caplog.records)
+
+
+# --- every call has a deadline ----------------------------------------------
+
+
+class RecordingClient:
+    """Duck-typed client: records the kwargs of each messages.create call."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.messages = self
+
+    async def create(self, **kwargs):
+        from types import SimpleNamespace
+
+        self.calls.append(kwargs)
+        block = SimpleNamespace(type="text", text=VERDICT_JSON)
+        return SimpleNamespace(content=[block], usage=SimpleNamespace(), stop_reason="end_turn")
+
+
+async def test_every_call_has_a_deadline_that_scales_with_its_budget():
+    rc = RecordingClient()
+    llm = LLM(client=rc)
+    await llm.complete(model="claude-sonnet-4-6", system="s", user="u", max_tokens=1500)
+    await llm.judge(model="claude-opus-4-8", system="s", user="u", max_tokens=16000)
+    small, big = (c["timeout"] for c in rc.calls)
+    assert 0 < small < big <= 600
+
+
+async def test_a_fixed_deadline_overrides_the_scaled_one():
+    rc = RecordingClient()
+    await LLM(client=rc, request_timeout_s=30).complete(model="m", system="s", user="u")
+    assert rc.calls[0]["timeout"] == 30

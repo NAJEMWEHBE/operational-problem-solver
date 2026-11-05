@@ -24,7 +24,11 @@ logger = logging.getLogger("ops_solver.orchestrator")
 async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
     """Run one full solve. Pass `llm` to inject a (mock) adapter in tests."""
     if llm is None:
-        llm = LLM(ledger=TokenLedger(), api_max_retries=cfg.api_max_retries)
+        llm = LLM(
+            ledger=TokenLedger(),
+            api_max_retries=cfg.api_max_retries,
+            request_timeout_s=cfg.api_timeout_s,
+        )
     ledger = llm.ledger
 
     run_id = time.strftime("run-%Y%m%d-%H%M%S")

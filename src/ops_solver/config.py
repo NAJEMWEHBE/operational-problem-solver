@@ -79,6 +79,8 @@ class RunConfig:
 
     # SDK-level API retries (429 / 5xx auto-retried by the client)
     api_max_retries: int = 4
+    # Per-attempt deadline in seconds; None scales it with each call's max_tokens.
+    api_timeout_s: float | None = None
 
     def __post_init__(self) -> None:
         self.cwd = Path(self.cwd)
