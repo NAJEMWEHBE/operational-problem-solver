@@ -6,7 +6,7 @@
 
 **Parallel worker teams · a consensus stability gate · an ELO tournament that ships the single best solution.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-a855f7?style=flat-square)](LICENSE) &nbsp;![Python](https://img.shields.io/badge/python-3.11%2B-38bdf8?style=flat-square) &nbsp;![Tests](https://img.shields.io/badge/tests-13%20passing-34d399?style=flat-square) &nbsp;![Built with Claude](https://img.shields.io/badge/built%20with-Claude%20Opus%204.8-f472b6?style=flat-square)
+[![License: MIT](https://img.shields.io/badge/License-MIT-a855f7?style=flat-square)](LICENSE) &nbsp;![Python](https://img.shields.io/badge/python-3.11%2B-38bdf8?style=flat-square) &nbsp;[![CI](https://github.com/NAJEMWEHBE/operational-problem-solver/actions/workflows/ci.yml/badge.svg)](https://github.com/NAJEMWEHBE/operational-problem-solver/actions/workflows/ci.yml) &nbsp;![Built with Claude](https://img.shields.io/badge/built%20with-Claude%20Opus%204.8-f472b6?style=flat-square)
 
 [**🌐 Live page**](https://najemwehbe.github.io/operational-problem-solver/) &nbsp;·&nbsp; [Architecture](docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Skill](.claude/skills/problem-solver/SKILL.md)
 
@@ -67,11 +67,15 @@ known-good ELO / Bradley-Terry math and the AlphaCode / LLM-as-judge patterns.
 ## ⚠️ Cost — this is not free
 
 Each worker and the judge are **metered Claude API calls**. The default fan-out
-(2 Intelligence + 4 Execution + a judge running pairwise rounds) is roughly
-**8–12 calls per run**. Controls:
+is **18 calls per run**: 2 Intelligence + 4 Execution + 6 judge pairs x 2 orders
+(each pair is judged both ways to cancel position bias). A consensus re-loop adds
+4 more (22). 12 of the 18 go to the Opus judge, so the judge dominates the bill.
+The CLI prints the expected count before it starts. Judge calls grow with
+C(workers, 2) x rounds, so:
 
 - `--cheap` runs workers on Haiku 4.5; the judge stays on Opus 4.8.
-- Fewer `--workers`, fewer `--rounds`.
+- Fewer `--workers` (3 workers: 3 pairs, 11 calls), fewer `--rounds`, `--reloops 0`.
+- `--concurrency` caps calls in flight (default 8); lower it if you hit rate limits.
 - Prompt caching is built in: all workers share one model + a cached Context
   Manifest prefix, and the judge caches the shared problem context across rounds.
 
@@ -110,8 +114,9 @@ ops-solve "solve: write a Python is_prime(n) with tests" --workers 4 --test-cmd 
 ops-solve "solve: a CLI that reverses stdin" --out ./reverse.py
 ```
 
-Options: `--workers/-w`, `--intel/-i`, `--rounds/-r`, `--reloops`, `--test-cmd`,
-`--out`, `--cheap`, `--lang`.
+Options: `--workers/-w`, `--intel/-i`, `--rounds/-r`, `--reloops`, `--concurrency/-c`,
+`--test-cmd`, `--out`, `--force` (let `--out` overwrite), `--cheap`, `--lang`,
+`--debug` (full tracebacks). `ops-solve --help` lists them all.
 
 **How `--test-cmd` runs.** The command runs once per worker, inside that worker's
 folder (`runs/<run-id>/Finch-NN/`), which holds only the solution file
@@ -141,8 +146,8 @@ Copy the skill into a project so Claude Code discovers it:
 
 Then `/problem-solver` or say `solve: <problem>`. With the engine installed and a
 key present, the skill shells out to `ops-solve` (deterministic ELO). Otherwise it
-orchestrates native Task subagents in-session (ELO reasoned by the model, less
-rigorous). See [SKILL.md](.claude/skills/problem-solver/SKILL.md).
+orchestrates subagents in-session with the Agent tool (ELO reasoned by the model,
+less rigorous). See [SKILL.md](.claude/skills/problem-solver/SKILL.md).
 
 ---
 

@@ -198,13 +198,21 @@ class LLM:
         *,
         client: Any | None = None,
         request_timeout_s: float | None = None,
+        max_concurrency: int = 8,
     ) -> None:
         """`client` is an `anthropic.AsyncAnthropic` (or compatible) instance.
         Pass one to control transport, auth or retries (tests inject a client over
         an offline mock transport); by default one is built from the environment.
 
         `request_timeout_s` fixes the per-attempt deadline; by default it scales
-        with each call's max_tokens (see `_deadline_s`)."""
+        with each call's max_tokens (see `_deadline_s`).
+
+        `max_concurrency` caps API calls in flight across every phase, so a big
+        judge fan-out (C(n,2) pairs x 2 orders) doesn't fire as one burst, hit
+        rate limits and silently drop matches."""
+        if max_concurrency < 1:
+            raise ValueError(f"max_concurrency must be >= 1, got {max_concurrency}")
+        self._slots = asyncio.Semaphore(max_concurrency)
         self.ledger = ledger or TokenLedger()
         self.request_timeout_s = request_timeout_s
         if client is None:
@@ -216,7 +224,8 @@ class LLM:
     async def _send(self, kwargs: dict[str, Any]) -> Any:
         """One Messages API call; usage is recorded before anything is parsed."""
         timeout = self.request_timeout_s or _deadline_s(kwargs["max_tokens"])
-        resp = await self.client.messages.create(**kwargs, timeout=timeout)
+        async with self._slots:
+            resp = await self.client.messages.create(**kwargs, timeout=timeout)
         self.ledger.record(kwargs["model"], resp.usage)
         if getattr(resp, "stop_reason", None) == "max_tokens":
             # thinking tokens count toward max_tokens; a cut-off reply usually

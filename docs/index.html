@@ -7,7 +7,14 @@
 <meta name="description" content="A multi-team agentic engine for Claude Code: parallel worker teams, a consensus stability gate, and an ELO tournament that ships the single best solution." />
 <meta property="og:title" content="operational-problem-solver" />
 <meta property="og:description" content="Parallel worker teams · consensus gate · ELO tournament → the single best solution." />
-<meta property="og:image" content="assets/hero.svg" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://najemwehbe.github.io/operational-problem-solver/" />
+<meta property="og:image" content="https://najemwehbe.github.io/operational-problem-solver/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="operational-problem-solver: Intelligence, Execution and Quality teams feeding an ELO tournament winner" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://najemwehbe.github.io/operational-problem-solver/assets/og.png" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0c16'/%3E%3Ccircle cx='10' cy='12' r='3' fill='%2338bdf8'/%3E%3Ccircle cx='22' cy='12' r='3' fill='%23fbbf24'/%3E%3Ccircle cx='16' cy='22' r='3' fill='%23a855f7'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -184,7 +191,7 @@
     <span class="chip"><b>2</b> Intelligence · <b>4</b> Execution · <b>1</b> Judge</span>
     <span class="chip"><b>50%</b> consensus stability gate</span>
     <span class="chip"><b>ELO</b> head-to-head ranking</span>
-    <span class="chip"><b>13</b> offline tests passing</span>
+    <span class="chip"><b>86</b> offline tests passing</span>
   </div>
   <figure class="herofig"><img src="assets/hero.svg" alt="Pipeline: Intelligence to Execution to Quality to Winner" /></figure>
 </div></header>
@@ -252,7 +259,7 @@
   3  Finch-04    978   1-2-0   0.55
   4  Finch-02    946   0-3-0   0.38
 
-<span class="f">winner</span> → runs/run-…/WINNER/solution.py     <span class="d">calls: 11 · est. $0.04</span></pre>
+<span class="f">winner</span> → runs/run-…/WINNER/solution.py     <span class="d">calls: 18</span></pre>
   </div>
 </div></section>
 
@@ -270,7 +277,7 @@
   <div style="height:26px"></div>
   <div class="callout reveal">
     <span class="ic">⚡</span>
-    <p><b>Honest about cost.</b> Every worker and the judge are metered Claude API calls — roughly 8–12 per run by default. Prompt caching, a <code>--cheap</code> Haiku tier, and fewer workers keep it down. The engine prints an estimated dollar cost every run. The offline test suite runs the ELO and consensus logic with a mocked model — zero API spend.</p>
+    <p><b>Honest about cost.</b> Every worker and the judge are metered Claude API calls — 18 per run by default (2 intelligence, 4 workers, 6 judge pairs in both orders), and the CLI prints the count before it starts. Prompt caching, a <code>--cheap</code> Haiku tier, and fewer workers keep it down. The engine prints an estimated dollar cost every run. The offline test suite runs the ELO and consensus logic with a mocked model — zero API spend.</p>
   </div>
 </div></section>
 

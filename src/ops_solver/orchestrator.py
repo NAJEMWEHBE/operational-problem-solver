@@ -9,6 +9,7 @@ worker prompts and Phase II re-runs, up to `max_reloops`.
 from __future__ import annotations
 
 import logging
+import secrets
 import shutil
 import time
 from pathlib import Path
@@ -28,12 +29,15 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
             ledger=TokenLedger(),
             api_max_retries=cfg.api_max_retries,
             request_timeout_s=cfg.api_timeout_s,
+            max_concurrency=cfg.max_concurrency,
         )
     ledger = llm.ledger
 
-    run_id = time.strftime("run-%Y%m%d-%H%M%S")
+    # timestamp for sorting + a random suffix: two runs in the same second must
+    # not share (and overwrite) one folder
+    run_id = f"{time.strftime('run-%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
     run_dir = cfg.runs_dir / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True)
 
     # Phase I — Intelligence
     probe = env_probe.probe(cfg.cwd)
@@ -53,7 +57,7 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
         artifacts = await execution.run_workers(
             llm, cfg, manifest, run_dir, attempt=attempt, feedback=feedback
         )
-        evals = [qa_consensus.evaluate(a, cfg) for a in artifacts]
+        evals = await qa_consensus.evaluate_all(artifacts, cfg)
         stable_ids, ratio, met = qa_consensus.consensus(evals, cfg.stability_threshold)
         if met or attempt == cfg.max_reloops:
             break

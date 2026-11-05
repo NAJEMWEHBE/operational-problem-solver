@@ -126,3 +126,19 @@ def test_lint_score_drops_per_issue_and_ignores_the_users_ruff_config(tmp_path, 
     res = evaluate(_artifact(ws, code), RunConfig(problem="x", lint=True))
     assert res.lint_ran is True and res.lint_ok is False
     assert res.lint_score == score
+
+
+async def test_workers_are_evaluated_concurrently_off_the_event_loop(tmp_path):
+    arts = []
+    for i in range(3):
+        ws = tmp_path / f"Finch-0{i + 1}"
+        ws.mkdir()
+        art = _artifact(ws, "x = 1\n")
+        arts.append(art.model_copy(update={"worker_id": f"Finch-0{i + 1}"}))
+    cfg = _cfg(test_cmd=f'{PY} -c "import time; time.sleep(2)"')
+    start = time.monotonic()
+    evals = await qa_consensus.evaluate_all(arts, cfg)
+    elapsed = time.monotonic() - start
+    assert [e.worker_id for e in evals] == ["Finch-01", "Finch-02", "Finch-03"]  # input order
+    assert all(e.tests_passed for e in evals)
+    assert elapsed < 4.5, f"took {elapsed:.1f}s; one at a time would take 6+ s"

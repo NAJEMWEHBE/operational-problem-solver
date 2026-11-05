@@ -89,3 +89,19 @@ def test_runs_with_sdk_discoverable_credentials_instead_of_an_api_key(monkeypatc
     assert result.exit_code == 1
     assert "stopped before any API call" in result.output
     assert "test-dummy-token" not in result.output
+
+
+def test_expected_call_count_matches_the_default_run():
+    from ops_solver.config import RunConfig
+
+    # 2 intel + 4 workers + C(4,2)=6 pairs x 2 orders; a re-loop adds 4 workers
+    assert RunConfig(problem="p").expected_calls() == (18, 22)
+    assert RunConfig(problem="p", judge_both_orders=False, max_reloops=0).expected_calls() == (12, 12)
+    assert RunConfig(problem="p", exec_workers=3, elo_rounds=2).expected_calls() == (2 + 3 + 12, 20)
+
+
+def test_cli_prints_the_expected_call_count_before_starting(monkeypatch, tmp_path):
+    _no_credentials(monkeypatch, tmp_path)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-dummy-token")
+    result = _invoke(monkeypatch)
+    assert "18 API calls (up to 22 with re-loops)" in " ".join(result.output.split())

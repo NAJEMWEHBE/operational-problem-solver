@@ -1,85 +1,59 @@
 ---
-name: operational-problem-solver
-description: A multi-team, multi-tool agentic engine that orchestrates parallel worker groups (Intelligence, Execution, QA) to solve complex technical problems, using a consensus stability gate and an ELO tournament to select and ship the single best solution. Trigger when the user says "solve:", /problem-solver, or asks to generate several competing solutions and pick the best.
+name: problem-solver
+description: 'solve: <problem>, or /problem-solver. Generates competing solutions in parallel, drops unstable ones at a consensus gate, ranks the rest in an ELO tournament and ships the winner. Use when a task wants several competing solutions and the best one picked.'
 ---
 
-# Multi-Team Operational Sandbox
+# Problem solver
 
-## Core Architecture
-A central orchestrator commands three specialized worker teams. Each team runs
-multiple instances in parallel.
+A tournament of competing solutions: Intelligence workers (Crow) build a Context
+Manifest, Execution workers (Finch) each write a standalone solution, a consensus
+gate drops the unstable ones, and an ELO tournament ranks the survivors. How the
+engine works: `docs/ARCHITECTURE.md` in this repo.
 
-```
-                 [ Central Orchestrator ]
-                /          |             \
-   [ Intelligence ]   [ Execution ]   [ Quality Assurance ]
-      Crow x2            Finch x4       Consensus + ELO
-```
+**Credentials guardrail:** check only that a credential *exists*, and refer to it
+by name (`ANTHROPIC_API_KEY`); its value stays out of the chat, commands, logs
+and files.
 
-### 1. Intelligence Team (Research & Context)
-- **Workers:** 2+ parallel instances (`Crow-Alpha`, `Crow-Beta`).
-- **Objective:** Read the codebase/directory, detect language and dependencies,
-  scan local docs, and pull baseline requirements.
-- **Output:** A unified **Context Manifest** (dependencies, constraints, parameters, risks).
+## Path A: the `ops-solve` engine (prefer it)
 
-### 2. Execution Team (Multi-Tool Workers)
-- **Workers:** 4+ parallel instances (`Finch-01` .. `Finch-04`).
-- **Objective:** Process the Context Manifest independently and simultaneously.
-  Each worker writes its own standalone solution.
-- **Rule:** Workers are isolated (own workspace dir, distinct strategy prompt)
-  to prevent groupthink.
+Computes ELO in code and runs real lint and tests.
 
-### 3. Quality Assurance Team (Consensus & Tournament)
-- **Layer 1 — Consensus:** Syntax-check, lint, and (optionally) test every
-  artifact. If fewer than 50% are stable, discard, mutate the prompt variables,
-  and re-loop Execution.
-- **Layer 2 — ELO Tournament:** Force the survivors into head-to-head pairwise
-  judging (correctness, cleanliness, speed, footprint). Update ELO ratings, blend
-  with the objective scores, and produce a ranked leaderboard. The top entry wins.
+1. **Detect.** `ops-solve --help` exits 0. If it doesn't, take Path B.
+2. **Confirm the cost.** Every call is metered: 18 API calls with the defaults
+   (2 Crow + 4 Finch + 6 judge pairs x 2 orders on Opus), 22 with a re-loop. Tell
+   the user the count and get a yes before running.
+3. **Run.**
+   ```bash
+   ops-solve "solve: <the problem>" --workers 4 --intel 2
+   ```
+   Options worth offering: `--cheap` (Haiku workers), `--workers 3` (11 calls),
+   `--out path/to/file` (`--force` to overwrite), and
+   `--test-cmd "pytest -q {file}"` to gate on real tests. `--test-cmd` executes
+   generated code, so use it only with the user's yes; `{file}` is the solution
+   file name and the command runs in each worker's folder.
+4. **Finish line:** exit code 0 and `runs/<run-id>/report.json` exists (the newest
+   folder in `runs/`). Report the leaderboard, the `WINNER/` path, the printed
+   calls and cost, and every `!` warning line.
+5. **On failure:**
+   - exit 2, "ANTHROPIC_API_KEY is not set": no credentials. Ask the user to set
+     the key (or `ant auth login`), or take Path B.
+   - exit 1, "Run failed: <Type>: <message>": report the message. For
+     `RateLimitError`, offer a re-run with `--concurrency 2`; for
+     `AuthenticationError`, the key is wrong; otherwise re-run with `--debug` for
+     the traceback.
 
-## How this actually runs in Claude Code
+## Path B: subagents in this session (no engine or no key)
 
-A skill is instructions — it cannot spawn OS processes itself. There are two
-execution paths; **prefer Path A.**
+Spends the session's own tokens. Use the Agent tool:
 
-### Path A — the Python engine (primary, deterministic ELO)
-If the `ops-solver` engine is installed and `ANTHROPIC_API_KEY` is set, shell out
-to it. This does the real parallel fan-out, runs linters/tests, and computes ELO
-in code:
-
-```bash
-ops-solve "solve: <the problem>" --workers 4 --intel 2
-# add --test-cmd "pytest -q {file}" to gate consensus on real tests (executes code;
-#   {file} is the solution file name, the command runs in each worker's folder)
-# add --cheap to use Haiku workers; --out path/to/file to write the winner
-```
-
-Then report the leaderboard, the winning solution, and the printed cost.
-
-### Path B — native subagents (fallback, no engine/key)
-If the engine or key is unavailable, orchestrate it in-session with the Task tool:
-1. **Phase I:** Spawn 2 Explore/research subagents to build the Context Manifest
-   (deps, constraints, params) for the directory + problem.
-2. **Phase II:** Spawn 4 independent subagents, each given the SAME manifest and a
-   distinct strategy (simplest / fastest / most robust / cleanest). Each returns a
-   complete standalone solution.
-3. **Phase III:** Run a judge subagent that pairwise-compares the solutions and
-   reports a ranked order. ELO here is reasoned by the model, not computed —
-   say so; it is less rigorous than Path A.
-4. If fewer than half the solutions are viable, re-prompt and re-run Phase II once.
-5. Present the winner.
-
-## ⚠️ Cost (read before running)
-Every worker and judge call is a **metered Claude API call** (Path A) or spends
-**your in-session tokens** (Path B). The spec-default fan-out is ~8–12 calls per
-run. This is **not free**. Use `--cheap`, fewer `--workers`, and prompt caching
-(built into the engine) to control spend. The engine prints an estimated cost.
-
-## Execution Protocol (summary)
-1. **Trigger:** user says `solve: <problem>` or invokes `/problem-solver`.
-2. **Phase I:** Intelligence audits the environment → Context Manifest.
-3. **Phase II:** Execution workers generate diverse standalone solutions in parallel.
-4. **Phase III:** QA runs the consensus gate (re-loop if <50% stable), then the
-   ELO tournament.
-5. **Output:** ship the highest-rated solution (engine writes it to `runs/<id>/WINNER/`
-   and, with `--out`, to your chosen path).
+1. **Phase I:** 2 research subagents build the Context Manifest (dependencies,
+   constraints, parameters, risks) for the directory and problem.
+2. **Phase II:** 4 independent subagents get the SAME manifest and one distinct
+   strategy each (simplest / fastest / most robust / cleanest), and each returns
+   a complete standalone solution.
+3. **Gate:** if fewer than half the solutions are viable, re-prompt with what
+   failed and re-run Phase II once.
+4. **Phase III:** a judge subagent compares the solutions pairwise and returns a
+   ranked order. This ELO is reasoned by the model, not computed; say so.
+5. **Finish line:** the winning solution presented with the ranking and the
+   judge's one-line reasons.

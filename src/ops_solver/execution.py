@@ -9,6 +9,7 @@ to its own workspace directory.
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 from .config import RunConfig
@@ -116,7 +117,9 @@ async def run_workers(
             code, language, explanation = extract_solution(text, manifest.language)
             fname = _filename(language)
             ws = run_dir / wid
-            ws.mkdir(parents=True, exist_ok=True)
+            if ws.exists():  # a re-loop: drop the previous attempt's files
+                shutil.rmtree(ws)
+            ws.mkdir(parents=True)
             (ws / fname).write_text(code, encoding="utf-8")
             if explanation:
                 (ws / "NOTES.md").write_text(explanation, encoding="utf-8")
