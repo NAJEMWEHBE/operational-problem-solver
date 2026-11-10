@@ -7,6 +7,11 @@ parses and (when tests ran) passes them.
 SECURITY: syntax checks and linting do NOT execute the generated code. Only a
 `test_cmd` executes it — that is opt-in (the user must pass --test-cmd), and it
 runs model-written code, so use it only on solutions you are willing to run.
+
+The working directory ops-solve runs in may be someone else's project, so no
+helper started here takes anything from it: ruff and taskkill are launched by
+absolute path (Windows searches the current directory before PATH), ruff writes
+no cache, and the test command runs in a private folder outside it.
 """
 
 from __future__ import annotations
@@ -15,8 +20,10 @@ import ast
 import asyncio
 import json
 import os
+import shutil
 import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -43,23 +50,57 @@ def _syntax_check(artifact: WorkerArtifact) -> bool:
     return True
 
 
+def _trusted_which(name: str) -> str | None:
+    """Absolute path of `name` from the absolute PATH entries, never from the
+    current directory. On Windows both shutil.which and CreateProcess look in the
+    current directory (the project ops-solve runs in) before PATH, so a bare name
+    in argv could start a same-named program from there instead."""
+    cwd = os.path.normcase(os.path.realpath(os.getcwd()))
+    exts = (".exe",) if os.name == "nt" else ("",)
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        d = d.strip('"')
+        if not d or not os.path.isabs(d) or os.path.normcase(os.path.realpath(d)) == cwd:
+            continue
+        for ext in exts:
+            cand = os.path.join(d, name + ext)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+    return None
+
+
+def _system_tool(name: str) -> str:
+    """Absolute path of a Windows system tool (System32); never searched for."""
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(260)
+    n = ctypes.windll.kernel32.GetSystemDirectoryW(buf, len(buf))
+    if 0 < n < len(buf):
+        sysdir = buf.value
+    else:
+        sysdir = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32")
+    return os.path.join(sysdir, name)
+
+
 def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
     """Return (ran, ok, score, summary). Currently wired for Python + ruff."""
-    import shutil
-
     lang = artifact.language.lower()
     path = Path(artifact.workspace) / artifact.filename
-    if lang in ("python", "py") and shutil.which("ruff") and path.exists():
+    ruff = _trusted_which("ruff") if lang in ("python", "py") else None
+    if ruff and path.exists():
         try:
             # JSON output: one entry per issue (the default text format prints ~10
             # lines per issue). --isolated: score every worker on ruff's defaults,
-            # not on whatever ruff config sits above the runs dir.
+            # not on whatever ruff config sits above the runs dir. --no-cache and
+            # cwd=: otherwise ruff creates .ruff_cache in the working directory,
+            # following whatever entry of that name is already there.
             proc = subprocess.run(
-                ["ruff", "check", "--output-format", "json", "--isolated", str(path)],
+                [ruff, "check", "--output-format", "json", "--isolated", "--no-cache",
+                 os.path.abspath(path)],
                 capture_output=True,
                 check=False,
                 text=True,
                 timeout=60,
+                cwd=artifact.workspace or None,
             )
             ok = proc.returncode == 0
             try:
@@ -80,15 +121,46 @@ def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
     return False, True, 1.0, "no linter available for this language"
 
 
-def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
-    """Run the user-supplied test command in the artifact's workspace.
+def _private_test_base() -> Path:
+    """Per-user folder for test runs: outside any working directory, and not
+    directly in a shared temp folder that another account can write to."""
+    root = os.environ.get("LOCALAPPDATA" if os.name == "nt" else "XDG_CACHE_HOME")
+    base = Path(root) if root and os.path.isabs(root) else Path.home() / ".cache"
+    base = base / "ops-solve" / "test-runs"
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return base
 
-    The workspace holds only the solution file (e.g. `solution.py`, which pytest
-    does not collect by default), so `{file}` in the command is replaced with
-    that file name: `pytest -q {file}`.
+
+def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
+    """Run the user-supplied test command against a copy of the solution file.
+
+    The command runs in a fresh private folder outside the working directory,
+    holding only the solution file (e.g. `solution.py`, which pytest does not
+    collect by default), so `{file}` in the command is replaced with that file
+    name: `pytest -q {file}`. Test runners read config and hook files from parent
+    folders (pytest.ini + conftest.py, package.json, Cargo.toml), and the working
+    directory may be someone else's project, so the worker folder under runs/ is
+    not where the tests run.
 
     WARNING: this executes the generated code. Opt-in via --test-cmd only."""
     cmd = test_cmd.replace("{file}", artifact.filename)
+    try:
+        tmp = tempfile.TemporaryDirectory(
+            prefix="run-", dir=_private_test_base(), ignore_cleanup_errors=True
+        )
+    except OSError as exc:
+        return False, f"test folder could not be created: {exc}"
+    with tmp as test_dir:
+        try:
+            shutil.copyfile(
+                Path(artifact.workspace) / artifact.filename, Path(test_dir) / artifact.filename
+            )
+        except OSError as exc:
+            return False, f"solution file could not be copied for testing: {exc}"
+        return _run_test_cmd(cmd, test_dir)
+
+
+def _run_test_cmd(cmd: str, cwd: str) -> tuple[bool, str]:
     # Own process group / session, so a timeout can kill the whole tree: killing
     # only the shell leaves a child (a server, a `while True:`) holding the output
     # pipes, and on Windows communicate() would then wait for it forever.
@@ -101,7 +173,7 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
         proc = subprocess.Popen(
             cmd,
             shell=True,
-            cwd=artifact.workspace,
+            cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -113,31 +185,39 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
     try:
         out, err = proc.communicate(timeout=_TEST_TIMEOUT_S)
     except subprocess.TimeoutExpired:
-        _kill_tree(proc)
+        killed = "process tree killed" if _kill_tree(proc) else "process killed"
         try:
             proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             pass  # a process escaped the tree; don't wait on its pipes
-        return False, f"test command timed out after {_TEST_TIMEOUT_S}s (process tree killed)"
+        return False, f"test command timed out after {_TEST_TIMEOUT_S}s ({killed})"
     return proc.returncode == 0, ((out or "") + (err or ""))[-600:]
 
 
-def _kill_tree(proc: subprocess.Popen) -> None:
-    """Kill `proc` and every process it started."""
+def _kill_tree(proc: subprocess.Popen) -> bool:
+    """Kill `proc` and every process it started. Returns True only when the
+    whole tree was killed; `proc` itself is killed either way."""
+    tree_killed = False
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-            capture_output=True,
-            check=False,
-            timeout=30,
-        )
+        try:
+            done = subprocess.run(
+                [_system_tool("taskkill.exe"), "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+            tree_killed = done.returncode == 0
+        except (subprocess.SubprocessError, OSError):
+            pass
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
+            tree_killed = True
         except (ProcessLookupError, PermissionError):
             pass
     if proc.poll() is None:
         proc.kill()
+    return tree_killed
 
 
 def evaluate(artifact: WorkerArtifact, cfg: RunConfig) -> EvalResult:

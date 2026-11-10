@@ -1,9 +1,12 @@
 """QA Layer 1 consensus gate + objective scoring. Offline; the --test-cmd tests
 run tiny local Python commands."""
 
+import os
 import shutil
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +14,14 @@ from ops_solver import qa_consensus
 from ops_solver.config import RunConfig
 from ops_solver.models import EvalResult, WorkerArtifact
 from ops_solver.qa_consensus import consensus, evaluate, objective_score
+
+
+@pytest.fixture(autouse=True)
+def _private_cache(tmp_path_factory, monkeypatch):
+    """Test runs go to a per-user cache folder; keep it inside the test's tmp."""
+    cache = tmp_path_factory.mktemp("user-cache")
+    monkeypatch.setenv("LOCALAPPDATA", str(cache))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
 
 
 def _cfg(**kw):
@@ -142,3 +153,152 @@ async def test_workers_are_evaluated_concurrently_off_the_event_loop(tmp_path):
     assert [e.worker_id for e in evals] == ["Finch-01", "Finch-02", "Finch-03"]  # input order
     assert all(e.tests_passed for e in evals)
     assert elapsed < 4.5, f"took {elapsed:.1f}s; one at a time would take 6+ s"
+
+
+# --- nothing from the working directory runs or gets written ----------------
+
+
+def test_test_cmd_does_not_load_the_working_directory_projects_conftest(tmp_path):
+    proj = tmp_path / "proj"
+    (proj / "runs" / "run-x" / "Finch-01").mkdir(parents=True)
+    marker = tmp_path / "conftest-ran"
+    (proj / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    (proj / "conftest.py").write_text(
+        f"import pathlib\npathlib.Path({str(marker)!r}).write_text('x')\n", encoding="utf-8"
+    )
+    code = "def test_ok():\n    assert True\n"
+    art = _artifact(proj / "runs" / "run-x" / "Finch-01", code)
+    res = evaluate(art, _cfg(test_cmd=f"{PY} -m pytest -q -p no:cacheprovider {{file}}"))
+    assert res.tests_passed is True, res.test_summary
+    assert not marker.exists()
+    assert sorted(p.name for p in Path(art.workspace).iterdir()) == ["solution.py"]
+
+
+def test_test_runs_in_a_private_folder_outside_the_working_directory(tmp_path):
+    code = "import os\nprint('CWD=' + os.getcwd())\n"
+    art = _artifact(tmp_path, code)
+    res = evaluate(art, _cfg(test_cmd=f"{PY} {{file}}"))
+    assert res.tests_passed is True, res.test_summary
+    ran_in = Path(res.test_summary.split("CWD=", 1)[1].strip())
+    assert ran_in.parent.resolve() == qa_consensus._private_test_base().resolve()
+    assert not ran_in.exists()  # removed afterwards
+
+
+def _fake_exe(folder: Path, name: str) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    exe = folder / (name + (".exe" if os.name == "nt" else ""))
+    exe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    exe.chmod(0o755)
+    return exe
+
+
+def test_helpers_are_never_found_in_the_current_directory(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    _fake_exe(proj, "ruff")
+    monkeypatch.chdir(proj)
+    monkeypatch.setenv("PATH", os.pathsep.join([".", "", str(proj)]))
+    assert qa_consensus._trusted_which("ruff") is None
+    real = _fake_exe(tmp_path / "bin", "ruff")
+    monkeypatch.setenv("PATH", os.pathsep.join([".", str(proj), str(real.parent)]))
+    assert qa_consensus._trusted_which("ruff") == str(real)
+
+
+def test_linter_starts_ruff_by_absolute_path_without_a_cache(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append((argv, kw))
+        return subprocess.CompletedProcess(argv, 0, stdout="[]", stderr="")
+
+    ruff = str(tmp_path / "bin" / "ruff")
+    monkeypatch.setattr(qa_consensus, "_trusted_which", lambda name: ruff)
+    monkeypatch.setattr(qa_consensus.subprocess, "run", fake_run)
+    art = _artifact(tmp_path, "x = 1\n")
+    res = evaluate(art, RunConfig(problem="x", lint=True))
+    assert res.lint_ran is True and res.lint_ok is True
+    (argv, kw), = calls
+    assert argv[0] == ruff
+    assert "--no-cache" in argv and "--isolated" in argv
+    assert os.path.isabs(argv[-1])
+    assert kw["cwd"] == art.workspace
+
+
+def test_no_linter_when_ruff_is_only_in_the_current_directory(tmp_path, monkeypatch):
+    _fake_exe(tmp_path, "ruff")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", ".")
+    res = evaluate(_artifact(tmp_path, "x = 1\n"), RunConfig(problem="x", lint=True))
+    assert res.lint_ran is False
+
+
+@pytest.mark.skipif(shutil.which("ruff") is None, reason="ruff not on PATH")
+def test_lint_writes_nothing_through_a_ruff_cache_link_in_the_working_directory(
+    tmp_path, monkeypatch
+):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    link = proj / ".ruff_cache"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        import _winapi
+
+        _winapi.CreateJunction(str(outside), str(link))
+    ws = proj / "runs" / "run-x" / "Finch-01"
+    ws.mkdir(parents=True)
+    monkeypatch.chdir(proj)
+    res = evaluate(_artifact(ws, "a = undefined_name\n"), RunConfig(problem="x", lint=True))
+    assert res.lint_ran is True and res.lint_score == 0.95
+    assert list(outside.iterdir()) == []
+    assert sorted(p.name for p in ws.iterdir()) == ["solution.py"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only kill path")
+def test_timeout_kill_runs_taskkill_from_the_system_folder(monkeypatch):
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+
+    class Proc:
+        pid = 4242
+        killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+    monkeypatch.setattr(qa_consensus.subprocess, "run", fake_run)
+    proc = Proc()
+    assert qa_consensus._kill_tree(proc) is True
+    exe = calls[0][0]
+    assert os.path.isabs(exe) and exe.lower().endswith(r"\system32\taskkill.exe")
+    assert proc.killed
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only kill path")
+def test_a_failed_tree_kill_still_kills_the_process_and_says_so(monkeypatch):
+    def failing_run(argv, **kw):
+        raise OSError("taskkill missing")
+
+    class Proc:
+        pid = 4242
+        killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+    monkeypatch.setattr(qa_consensus.subprocess, "run", failing_run)
+    proc = Proc()
+    assert qa_consensus._kill_tree(proc) is False
+    assert proc.killed
