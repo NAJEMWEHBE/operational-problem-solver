@@ -8,6 +8,7 @@ the pure engine to an async LLM judge.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from .config import RunConfig
 from .models import (
@@ -18,6 +19,8 @@ from .models import (
     MatchResult,
     WorkerArtifact,
 )
+
+logger = logging.getLogger("ops_solver.elo")
 
 # --- Pure ELO math --------------------------------------------------------
 
@@ -224,7 +227,25 @@ async def run_tournament(
         # whichever solution is shown first cancels itself out -- when the two orderings
         # disagree, the match collapses toward a 0.5 tie instead of being decided by
         # presentation order. Opt out with cfg.judge_both_orders = False.
-        fwd, rev = await asyncio.gather(_ask(a_id, b_id, focus), _ask(b_id, a_id, focus))
+        # return_exceptions: an API error in one order must not discard the other
+        # order's (already paid) verdict. Only Exception counts as a failed call;
+        # cancellation and other BaseExceptions still propagate.
+        fwd, rev = await asyncio.gather(
+            _ask(a_id, b_id, focus), _ask(b_id, a_id, focus), return_exceptions=True
+        )
+        for r in (fwd, rev):
+            if isinstance(r, BaseException) and not isinstance(r, Exception):
+                raise r
+        errors = [r for r in (fwd, rev) if isinstance(r, Exception)]
+        fwd = None if isinstance(fwd, Exception) else fwd
+        rev = None if isinstance(rev, Exception) else rev
+        if errors and fwd is None and rev is None:
+            raise errors[0]  # both orders failed: fan_out logs the cause and drops the match
+        for exc in errors:
+            logger.warning(
+                "judge call for %s vs %s failed, scoring the other order only: %s: %s",
+                a_id, b_id, type(exc).__name__, exc,
+            )
         # in the swapped call a_id is shown as "B": flip it back to a's point of view
         rev = _flip(rev) if rev is not None else None
         verdicts = [v for v in (fwd, rev) if v is not None]
