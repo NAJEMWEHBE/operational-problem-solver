@@ -21,12 +21,16 @@ app = typer.Typer(add_completion=False, help="Multi-team consensus + ELO problem
 console = Console()
 
 
-_DOTENV_ALLOWED = {"ANTHROPIC_API_KEY", "ANTHROPIC_LOG", "ANTHROPIC_BASE_URL"}
+# ANTHROPIC_BASE_URL is deliberately not accepted from a .env: the endpoint
+# receives the credential and the problem text and writes every reply, so only
+# the operator's real environment (or `ant auth` profile) may choose it.
+_DOTENV_ALLOWED = {"ANTHROPIC_API_KEY", "ANTHROPIC_LOG"}
 
 
 def _load_dotenv(cwd: Path) -> None:
     """Minimal .env loader: only an allow-list of keys we use, so a stray .env in
-    the working directory can't inject arbitrary environment variables."""
+    the working directory can't inject arbitrary environment variables or choose
+    the API endpoint."""
     env = cwd / ".env"
     if not env.exists() or os.environ.get("ANTHROPIC_API_KEY"):
         return
@@ -36,6 +40,12 @@ def _load_dotenv(cwd: Path) -> None:
             continue
         key, _, val = line.partition("=")
         key = key.strip()
+        if key == "ANTHROPIC_BASE_URL":
+            console.print(
+                "[yellow]Note:[/] ANTHROPIC_BASE_URL in .env is ignored; "
+                "set it in your environment instead."
+            )
+            continue
         # Override only when the var is absent OR present-but-empty; a real
         # existing value already short-circuited at the top guard, so we never
         # clobber a genuine env key — but an empty "" no longer shadows .env.
@@ -148,7 +158,8 @@ def main(
     test_cmd: str | None = typer.Option(
         None,
         "--test-cmd",
-        help="Shell command run in each worker's folder to test its solution; {file} is "
+        help="Shell command run to test each worker's solution, in a private folder that "
+        "holds only that file; {file} is "
         'replaced with the solution file name, e.g. "pytest -q {file}" (EXECUTES generated code).',
     ),
     out: Path | None = typer.Option(None, "--out", help="Write the winning solution file here."),
@@ -211,5 +222,16 @@ def main(
     _render(report)
 
 
+def run() -> None:
+    """Console-script entry for `ops-solve`.
+
+    On Windows, Typer's default rewrites every argument before main() sees it:
+    `~`, `$NAME`, `${NAME}` and `%NAME%` are filled in from the environment and
+    glob patterns are matched against the working directory, whatever quoting the
+    shell used. The arguments here are free-form problem text, a shell command
+    and a path, so they must reach main() exactly as typed."""
+    app(windows_expand_args=False)
+
+
 if __name__ == "__main__":
-    app()
+    run()
