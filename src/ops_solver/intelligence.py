@@ -30,11 +30,19 @@ _ANGLES = [
 ]
 
 
+_FACT_CHARS = 2000  # per probe-derived list in the (paid, cached) Crow system block
+
+
+def _clip(text: str, limit: int = _FACT_CHARS) -> str:
+    return text if len(text) <= limit else text[:limit] + " ...(truncated)"
+
+
 def _facts_block(probe: dict) -> str:
-    tree = "\n".join(probe.get("file_tree", [])[:40]) or "(empty directory)"
+    tree = _clip("\n".join(probe.get("file_tree", [])[:40])) or "(empty directory)"
+    deps = _clip(", ".join(probe.get("dependencies", []))) or "none"
     return (
         f"DETECTED LANGUAGE: {probe.get('language')}\n"
-        f"DEPENDENCIES FOUND: {', '.join(probe.get('dependencies', [])) or 'none'}\n"
+        f"DEPENDENCIES FOUND: {deps}\n"
         f"LINTERS AVAILABLE: {', '.join(probe.get('linters_available', [])) or 'none'}\n"
         f"TEST RUNNERS: {', '.join(probe.get('test_runners_available', [])) or 'none'}\n"
         f"FILE TREE:\n{tree}\n\n"

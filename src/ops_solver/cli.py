@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .config import CHEAP_WORKER_MODEL, RunConfig
+from .env_probe import read_regular_file
 from .models import RunReport
 from .orchestrator import solve
 
@@ -21,21 +22,33 @@ app = typer.Typer(add_completion=False, help="Multi-team consensus + ELO problem
 console = Console()
 
 
-_DOTENV_ALLOWED = {"ANTHROPIC_API_KEY", "ANTHROPIC_LOG", "ANTHROPIC_BASE_URL"}
+# The API endpoint is taken only from the real environment (or an `ant auth`
+# profile), not from a `.env`.
+_DOTENV_ALLOWED = {"ANTHROPIC_API_KEY", "ANTHROPIC_LOG"}
+_DOTENV_BYTES = 64 * 1024
 
 
 def _load_dotenv(cwd: Path) -> None:
     """Minimal .env loader: only an allow-list of keys we use, so a stray .env in
-    the working directory can't inject arbitrary environment variables."""
-    env = cwd / ".env"
-    if not env.exists() or os.environ.get("ANTHROPIC_API_KEY"):
+    the working directory can't inject arbitrary environment variables or choose
+    the API endpoint. Only a regular file is read, and only its first 64 KiB."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
         return
-    for line in env.read_text(encoding="utf-8", errors="ignore").splitlines():
+    text = read_regular_file(cwd / ".env", _DOTENV_BYTES)
+    if text is None:
+        return
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, val = line.partition("=")
         key = key.strip()
+        if key == "ANTHROPIC_BASE_URL":
+            console.print(
+                "[yellow]Note:[/] ANTHROPIC_BASE_URL in .env is ignored; "
+                "set it in your environment instead."
+            )
+            continue
         # Override only when the var is absent OR present-but-empty; a real
         # existing value already short-circuited at the top guard, so we never
         # clobber a genuine env key — but an empty "" no longer shadows .env.
@@ -148,7 +161,8 @@ def main(
     test_cmd: str | None = typer.Option(
         None,
         "--test-cmd",
-        help="Shell command run in each worker's folder to test its solution; {file} is "
+        help="Shell command run to test each worker's solution, in a private folder that "
+        "holds only that file; {file} is "
         'replaced with the solution file name, e.g. "pytest -q {file}" (EXECUTES generated code).',
     ),
     out: Path | None = typer.Option(None, "--out", help="Write the winning solution file here."),
@@ -211,5 +225,16 @@ def main(
     _render(report)
 
 
+def run() -> None:
+    """Console-script entry for `ops-solve`.
+
+    On Windows, Typer's default rewrites every argument before main() sees it:
+    `~`, `$NAME`, `${NAME}` and `%NAME%` are filled in from the environment and
+    glob patterns are matched against the working directory, whatever quoting the
+    shell used. The arguments here are free-form problem text, a shell command
+    and a path, so they must reach main() exactly as typed."""
+    app(windows_expand_args=False)
+
+
 if __name__ == "__main__":
-    app()
+    run()

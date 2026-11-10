@@ -1,5 +1,6 @@
 """End-to-end orchestrator loop with a mocked LLM. No API, no tokens."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -210,3 +211,82 @@ async def test_a_reloop_leaves_no_stale_files_in_the_shipped_winner(tmp_path: Pa
     assert report.attempts == 2
     shipped = sorted(p.name for p in Path(report.winner_path).iterdir())
     assert shipped == ["solution.js"]
+
+
+# --- --out writes exactly the path the operator named ------------------------
+
+
+def _out_cfg(tmp_path: Path, out: Path, force: bool = False) -> RunConfig:
+    return RunConfig(
+        problem="p", cwd=tmp_path, runs_dir=tmp_path / "runs",
+        intel_workers=1, exec_workers=1, max_reloops=0, lint=False,
+        out_path=out, force=force,
+    )
+
+
+def _link(link: Path, target: Path, is_dir: bool = False) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=is_dir)
+    except (OSError, NotImplementedError):
+        if is_dir and sys.platform == "win32":  # a junction needs no privilege
+            import _winapi
+
+            _winapi.CreateJunction(str(target), str(link))
+            return
+        pytest.skip("this OS/account can't create symlinks")
+
+
+async def test_out_writes_the_winner_and_respects_force(tmp_path: Path):
+    out = tmp_path / "sub" / "solution.py"
+    report = await solve(_out_cfg(tmp_path, out), llm=MockLLM())
+    assert "def solution" in out.read_text(encoding="utf-8")
+    assert not report.warnings
+
+    out.write_text("mine\n", encoding="utf-8")
+    report = await solve(_out_cfg(tmp_path, out), llm=MockLLM())
+    assert out.read_text(encoding="utf-8") == "mine\n"
+    assert any("not overwritten" in w for w in report.warnings)
+
+    await solve(_out_cfg(tmp_path, out, force=True), llm=MockLLM())
+    assert "def solution" in out.read_text(encoding="utf-8")
+
+
+async def test_out_does_not_write_through_a_dangling_link(tmp_path: Path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    target = tmp_path / "elsewhere" / "existing_link.py"
+    _link(proj / "out.py", target)
+    report = await solve(_out_cfg(proj, proj / "out.py"), llm=MockLLM())
+    assert not target.exists() and not target.parent.exists()
+    assert (proj / "out.py").is_symlink()
+    assert any("not overwritten" in w for w in report.warnings)
+
+
+async def test_out_force_replaces_the_link_not_its_target(tmp_path: Path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    target = tmp_path / "keep.txt"
+    target.write_text("keep\n", encoding="utf-8")
+    _link(proj / "out.py", target)
+    await solve(_out_cfg(proj, proj / "out.py", force=True), llm=MockLLM())
+    assert target.read_text(encoding="utf-8") == "keep\n"
+    assert not (proj / "out.py").is_symlink()
+    assert "def solution" in (proj / "out.py").read_text(encoding="utf-8")
+
+
+async def test_out_does_not_leave_the_working_directory_through_a_linked_folder(tmp_path: Path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    _link(proj / "src", elsewhere, is_dir=True)
+    report = await solve(_out_cfg(proj, proj / "src" / "x.py", force=True), llm=MockLLM())
+    assert list(elsewhere.iterdir()) == []
+    assert any("through a link" in w for w in report.warnings)
+
+
+async def test_out_never_writes_into_a_folder(tmp_path: Path):
+    (tmp_path / "taken").mkdir()
+    report = await solve(_out_cfg(tmp_path, tmp_path / "taken", force=True), llm=MockLLM())
+    assert list((tmp_path / "taken").iterdir()) == []
+    assert any("not a regular file" in w for w in report.warnings)

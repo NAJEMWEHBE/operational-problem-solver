@@ -118,16 +118,20 @@ Options: `--workers/-w`, `--intel/-i`, `--rounds/-r`, `--reloops`, `--concurrenc
 `--test-cmd`, `--out`, `--force` (let `--out` overwrite), `--cheap`, `--lang`,
 `--debug` (full tracebacks). `ops-solve --help` lists them all.
 
-**How `--test-cmd` runs.** The command runs once per worker, inside that worker's
-folder (`runs/<run-id>/Finch-NN/`), which holds only the solution file
-(`solution.py`, `solution.js`, ...). `{file}` in the command is replaced with that
-file name. pytest does not collect `solution.py` on its own, so a bare
-`pytest -q` finds no tests (exit 5) and fails every worker:
+**How `--test-cmd` runs.** The command runs once per worker, in a fresh private
+folder outside your working directory (under `%LOCALAPPDATA%\ops-solve\test-runs\`
+on Windows, `$XDG_CACHE_HOME` or `~/.cache/ops-solve/test-runs/` elsewhere) that
+holds only a copy of the solution file (`solution.py`, `solution.js`, ...) and is
+removed afterwards. Config and hook files of the project you run ops-solve in
+(`pytest.ini`, `conftest.py`, ...) are therefore not picked up. `{file}` in the
+command is replaced with the file name. pytest does not collect `solution.py` on
+its own, so a bare `pytest -q` finds no tests (exit 5) and fails every worker:
 
 - tests written inside the solution: `--test-cmd "pytest -q {file}"`
 - your own tests: pass their absolute path, e.g.
   `--test-cmd "python -m pytest -q /abs/path/to/tests"`; `python -m` puts the
-  worker folder on `sys.path`, so the tests can `import solution`.
+  current folder (the private one holding `solution.py`) on `sys.path`, so the
+  tests can `import solution`.
 
 Each run writes to `runs/<run-id>/`:
 - `Finch-NN/` — each worker's isolated solution + notes
@@ -175,7 +179,17 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data flow and formulas.
   generated code.
 - `--test-cmd` **does** execute it (that is the point of a test gate). It is
   opt-in. Only use it on solutions you are willing to run; the engine runs the
-  command in each worker's workspace directory.
+  command in a private folder outside the working directory.
+- The working directory may be a project you don't control, so ops-solve takes
+  only plain data from it: the probe and the `.env` loader read regular files
+  inside it (no links) with size limits; a `.env` there may set
+  `ANTHROPIC_API_KEY` and `ANTHROPIC_LOG` but not the API endpoint
+  (`ANTHROPIC_BASE_URL` comes only from your real environment); `ruff` (and, on
+  Windows, `taskkill`) is started by absolute path; ruff writes no cache; and
+  `--out` never writes through a link at the target path, nor out of the working
+  directory through a linked folder.
+- Arguments reach ops-solve exactly as typed on every OS (no `~`, `%VAR%` or
+  wildcard expansion inside the program on Windows).
 - Worker "isolation" means separate directories + no shared state + diversity
   prompts — **not** OS-level sandboxing.
 

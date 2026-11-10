@@ -30,7 +30,8 @@ Computes ELO in code and runs real lint and tests.
    `--out path/to/file` (`--force` to overwrite), and
    `--test-cmd "pytest -q {file}"` to gate on real tests. `--test-cmd` executes
    generated code, so use it only with the user's yes; `{file}` is the solution
-   file name and the command runs in each worker's folder.
+   file name and the command runs in a private folder outside the working
+   directory that holds a copy of the solution file.
 4. **Finish line:** exit code 0 and `runs/<run-id>/report.json` exists (the newest
    folder in `runs/`). Report the leaderboard, the `WINNER/` path, the printed
    calls and cost, and every `!` warning line.

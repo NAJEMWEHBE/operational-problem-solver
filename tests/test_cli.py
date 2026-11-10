@@ -1,7 +1,9 @@
 """CLI rendering: model- and user-written text must print literally."""
 
 import io
+import os
 
+import pytest
 from rich.console import Console
 
 from ops_solver import cli
@@ -105,3 +107,74 @@ def test_cli_prints_the_expected_call_count_before_starting(monkeypatch, tmp_pat
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-dummy-token")
     result = _invoke(monkeypatch)
     assert "18 API calls (up to 22 with re-loops)" in " ".join(result.output.split())
+
+
+# --- arguments reach main() exactly as typed (no Windows argv expansion) -----
+
+
+def test_console_script_uses_the_literal_argv_entry():
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    scripts = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["scripts"]
+    assert scripts["ops-solve"] == "ops_solver.cli:run"
+
+
+class _WindowsOs:
+    """typer.core's view of `os`, reporting Windows; everything else is real."""
+
+    name = "nt"
+
+    def __getattr__(self, attr):
+        return getattr(os, attr)
+
+
+def _argv_seen_by_main(monkeypatch, home, entry):
+    import sys
+
+    import typer.core
+
+    home.mkdir()
+    _no_credentials(monkeypatch, home)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-dummy-token")
+    monkeypatch.setenv("OPS_ARGV_PROBE", "EXPANDED")
+    monkeypatch.setattr(typer.core, "os", _WindowsOs(), raising=False)
+    seen = {}
+
+    async def fake_solve(cfg):
+        seen.update(problem=cfg.problem, test_cmd=cfg.test_cmd, lang=cfg.language)
+        raise RuntimeError("stopped before any API call")
+
+    monkeypatch.setattr(cli, "solve", fake_solve)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ops-solve", "solve: print $OPS_ARGV_PROBE and %OPS_ARGV_PROBE%",
+         "--test-cmd", "echo ${OPS_ARGV_PROBE} {file}", "--lang", "$OPS_ARGV_PROBE"],
+    )
+    try:
+        entry()
+    except SystemExit:
+        pass
+    return seen
+
+
+def test_run_passes_arguments_through_literally(monkeypatch, tmp_path):
+    # control: Typer's own default does expand them, so the check below is real
+    control = _argv_seen_by_main(monkeypatch, tmp_path / "control", cli.app)
+    if "EXPANDED" not in control.get("problem", ""):
+        pytest.skip("this Typer version doesn't expand argv in typer.core")
+    seen = _argv_seen_by_main(monkeypatch, tmp_path / "run", cli.run)
+    assert seen == {
+        "problem": "print $OPS_ARGV_PROBE and %OPS_ARGV_PROBE%",
+        "test_cmd": "echo ${OPS_ARGV_PROBE} {file}",
+        "lang": "$OPS_ARGV_PROBE",
+    }
+
+
+def test_run_turns_off_typer_argv_expansion(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli, "app", lambda *a, **kw: calls.append((a, kw)))
+    cli.run()
+    assert calls == [((), {"windows_expand_args": False})]

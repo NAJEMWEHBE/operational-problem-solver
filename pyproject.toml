@@ -29,7 +29,7 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.17,<0.18"]
 fast = ["anthropic[aiohttp]>=2,<3"]
 
 [project.scripts]
-ops-solve = "ops_solver.cli:app"
+ops-solve = "ops_solver.cli:run"
 
 [project.urls]
 Homepage = "https://github.com/NAJEMWEHBE/operational-problem-solver"

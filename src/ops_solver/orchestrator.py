@@ -9,6 +9,7 @@ worker prompts and Phase II re-runs, up to `max_reloops`.
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import shutil
 import time
@@ -117,15 +118,10 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
             shutil.copytree(win_art.workspace, dest)
             winner_path = str(dest)
             if cfg.out_path is not None:
-                out_dest = cfg.out_path.resolve()
-                if out_dest.exists() and not cfg.force:
-                    warnings.append(
-                        f"--out target exists, not overwritten (use --force): {out_dest}"
-                    )
+                problem = _write_out(cfg, Path(win_art.workspace) / win_art.filename)
+                if problem:
+                    warnings.append(problem)
                     logger.warning(warnings[-1])
-                else:
-                    out_dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(Path(win_art.workspace) / win_art.filename, out_dest)
 
     report = RunReport(
         run_id=run_id,
@@ -145,3 +141,41 @@ async def solve(cfg: RunConfig, llm: LLM | None = None) -> RunReport:
     )
     (run_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return report
+
+
+def _write_out(cfg: RunConfig, src: Path) -> str | None:
+    """Copy the winning file to the exact path given with --out; returns a warning
+    when nothing was written.
+
+    The working directory may contain links, so the target path itself is never
+    followed: any existing entry, a dangling link included, counts as occupied;
+    --force replaces a link at the target path, never its target. It never writes
+    through a link at the target path, nor out of the working directory through a
+    linked folder."""
+    dest = cfg.out_path.absolute()
+    if os.path.lexists(dest):
+        if not cfg.force:
+            return f"--out target exists, not overwritten (use --force): {dest}"
+        if not (dest.is_symlink() or dest.is_file()):
+            return f"--out target is not a regular file, not written: {dest}"
+    cwd = cfg.cwd.absolute()
+    if Path(os.path.normpath(dest)).is_relative_to(os.path.normpath(cwd)) and not (
+        dest.parent.resolve().is_relative_to(cwd.resolve())
+    ):
+        return f"--out path leaves the working directory through a link, not written: {dest}"
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | (os.O_TRUNC if cfg.force else os.O_EXCL)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.is_symlink():
+            dest.unlink()
+        with os.fdopen(os.open(dest, flags, 0o666), "wb") as fh:
+            fh.write(src.read_bytes())
+    except OSError as exc:
+        return f"--out could not be written ({exc}): {dest}"
+    return None
