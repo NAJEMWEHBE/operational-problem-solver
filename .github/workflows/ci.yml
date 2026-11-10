@@ -12,6 +12,9 @@ on:
 
 jobs:
   test:
+    # The Linux jobs keep the names the branch rule on main requires
+    # ("test (3.11)" ...); the Windows job is "test (windows, 3.13)".
+    name: test (${{ matrix.label }}${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -26,6 +29,7 @@ jobs:
         include:
           - os: windows-latest
             python-version: "3.13"
+            label: "windows, "
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
