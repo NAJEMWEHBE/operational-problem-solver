@@ -8,10 +8,11 @@ SECURITY: syntax checks and linting do NOT execute the generated code. Only a
 `test_cmd` executes it — that is opt-in (the user must pass --test-cmd), and it
 runs model-written code, so use it only on solutions you are willing to run.
 
-The working directory ops-solve runs in may be someone else's project, so no
-helper started here takes anything from it: ruff and taskkill are launched by
-absolute path (Windows searches the current directory before PATH), ruff writes
-no cache, and the test command runs in a private folder outside it.
+The working directory ops-solve runs in may be a project you don't control, so
+no helper started here takes anything from it: ruff (and, on Windows, taskkill)
+is launched by absolute path (Windows searches the current directory before
+PATH), ruff writes no cache, and the test command runs in a private folder
+outside it.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import logging
 import os
 import shutil
 import signal
@@ -29,6 +31,8 @@ from pathlib import Path
 
 from .config import RunConfig
 from .models import EvalResult, WorkerArtifact
+
+logger = logging.getLogger("ops_solver.qa_consensus")
 
 _TEST_TIMEOUT_S = 120
 
@@ -118,6 +122,8 @@ def _run_linter(artifact: WorkerArtifact) -> tuple[bool, bool, float, str]:
             # linter present but crashed: don't award full credit (would beat a
             # file that merely had lint warnings); mark it ran-but-failed.
             return True, False, 0.5, f"linter error: {exc}"
+    if lang in ("python", "py") and not ruff:
+        return False, True, 1.0, "ruff not found on PATH outside the working directory"
     return False, True, 1.0, "no linter available for this language"
 
 
@@ -139,8 +145,8 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
     collect by default), so `{file}` in the command is replaced with that file
     name: `pytest -q {file}`. Test runners read config and hook files from parent
     folders (pytest.ini + conftest.py, package.json, Cargo.toml), and the working
-    directory may be someone else's project, so the worker folder under runs/ is
-    not where the tests run.
+    directory may be a project you don't control, so the worker folder under
+    runs/ is not where the tests run.
 
     WARNING: this executes the generated code. Opt-in via --test-cmd only."""
     cmd = test_cmd.replace("{file}", artifact.filename)
@@ -156,30 +162,43 @@ def _run_tests(artifact: WorkerArtifact, test_cmd: str) -> tuple[bool, str]:
                 Path(artifact.workspace) / artifact.filename, Path(test_dir) / artifact.filename
             )
         except OSError as exc:
-            return False, f"solution file could not be copied for testing: {exc}"
-        return _run_test_cmd(cmd, test_dir)
+            result = False, f"solution file could not be copied for testing: {exc}"
+        else:
+            result = _run_test_cmd(cmd, test_dir)
+    if os.path.lexists(test_dir):
+        # cleanup errors are ignored above (a process may still hold a file);
+        # try once more, then say what was left behind
+        shutil.rmtree(test_dir, ignore_errors=True)
+        if os.path.lexists(test_dir):
+            logger.warning("test folder could not be removed: %s", test_dir)
+    return result
 
 
-def _run_test_cmd(cmd: str, cwd: str) -> tuple[bool, str]:
-    # Own process group / session, so a timeout can kill the whole tree: killing
-    # only the shell leaves a child (a server, a `while True:`) holding the output
-    # pipes, and on Windows communicate() would then wait for it forever.
+def _spawn(cmd: str, cwd: str) -> subprocess.Popen:
+    """Start the shell command `cmd` in `cwd`, in its own process group / session,
+    so a timeout can kill the whole tree: killing only the shell leaves a child
+    (a server, a `while True:`) holding the output pipes, and on Windows
+    communicate() would then wait for it forever."""
     group = (
         {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         if os.name == "nt"
         else {"start_new_session": True}
     )
+    return subprocess.Popen(
+        cmd,
+        shell=True,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        **group,
+    )
+
+
+def _run_test_cmd(cmd: str, cwd: str) -> tuple[bool, str]:
     try:
-        proc = subprocess.Popen(
-            cmd,
-            shell=True,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            errors="replace",
-            **group,
-        )
+        proc = _spawn(cmd, cwd)
     except (subprocess.SubprocessError, OSError) as exc:
         return False, f"test command failed to run: {exc}"
     try:

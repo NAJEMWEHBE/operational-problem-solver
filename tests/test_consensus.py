@@ -302,3 +302,32 @@ def test_a_failed_tree_kill_still_kills_the_process_and_says_so(monkeypatch):
     proc = Proc()
     assert qa_consensus._kill_tree(proc) is False
     assert proc.killed
+
+
+def test_python_without_a_usable_ruff_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(qa_consensus, "_trusted_which", lambda name: None)
+    res = evaluate(_artifact(tmp_path, "x = 1\n"), RunConfig(problem="x", lint=True))
+    assert res.lint_ran is False and res.lint_score == 1.0
+    assert res.test_summary == "ruff not found on PATH outside the working directory"
+
+
+def test_a_test_folder_that_cannot_be_removed_is_reported(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(qa_consensus.shutil, "rmtree", lambda *a, **kw: None)
+    art = _artifact(tmp_path, "x = 1\n")
+    with caplog.at_level("WARNING", logger="ops_solver.qa_consensus"):
+        res = evaluate(art, _cfg(test_cmd=f"{PY} {{file}}"))
+    assert res.tests_passed is True, res.test_summary
+    left = [r.args[0] for r in caplog.records if "could not be removed" in r.getMessage()]
+    assert len(left) == 1
+    assert Path(left[0]).parent.resolve() == qa_consensus._private_test_base().resolve()
+    assert Path(left[0]).exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only kill path")
+def test_kill_tree_really_kills_a_child_tree_on_windows(tmp_path):
+    proc = qa_consensus._spawn("cmd /c ping -n 30 127.0.0.1", str(tmp_path))
+    time.sleep(1)  # let cmd start ping
+    assert qa_consensus._kill_tree(proc) is True
+    # the pipes close only once ping, the grandchild, is gone too
+    proc.communicate(timeout=10)
+    assert proc.poll() is not None
