@@ -24,6 +24,7 @@ import logging
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -134,6 +135,14 @@ def _private_test_base() -> Path:
     base = Path(root) if root and os.path.isabs(root) else Path.home() / ".cache"
     base = base / "ops-solve" / "test-runs"
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name != "nt":
+        # A folder that was already there must be this user's own, and closed to
+        # other accounts: test runners read config files from parent folders.
+        st = base.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+            raise PermissionError(f"not a folder owned by this user: {base}")
+        if st.st_mode & 0o077:
+            base.chmod(0o700)
     return base
 
 

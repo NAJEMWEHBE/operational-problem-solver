@@ -111,7 +111,8 @@ def _read_deps(cwd: Path) -> list[str]:
     if pkg is not None:
         try:
             data = json.loads(pkg)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
+            # not JSON, a number too long to convert, or nesting too deep
             data = None
         if isinstance(data, dict):
             for section in ("dependencies", "devDependencies"):

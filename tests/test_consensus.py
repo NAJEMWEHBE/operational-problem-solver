@@ -323,6 +323,27 @@ def test_a_test_folder_that_cannot_be_removed_is_reported(tmp_path, monkeypatch,
     assert Path(left[0]).exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_an_existing_test_base_is_closed_to_other_accounts():
+    base = qa_consensus._private_test_base()
+    base.chmod(0o777)
+    assert qa_consensus._private_test_base().stat().st_mode & 0o077 == 0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_a_test_base_that_is_a_link_is_refused(tmp_path):
+    base = qa_consensus._private_test_base()
+    base.rmdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    base.symlink_to(elsewhere, target_is_directory=True)
+    art = _artifact(tmp_path, "x = 1\n")
+    res = evaluate(art, _cfg(test_cmd=f"{PY} {{file}}"))
+    assert res.tests_passed is False
+    assert "test folder could not be created" in res.test_summary
+    assert list(elsewhere.iterdir()) == []
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows-only kill path")
 def test_kill_tree_really_kills_a_child_tree_on_windows(tmp_path):
     proc = qa_consensus._spawn("cmd /c ping -n 30 127.0.0.1", str(tmp_path))

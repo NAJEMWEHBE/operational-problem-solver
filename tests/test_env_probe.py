@@ -131,6 +131,14 @@ def test_odd_package_json_shapes_are_ignored(tmp_path):
         assert probe(tmp_path)["dependencies"] == [], body
 
 
+def test_package_json_that_cannot_be_parsed_is_ignored(tmp_path):
+    too_deep = "[" * 100_000
+    too_long_a_number = '{"dependencies": {"a": 1}, "n": ' + "1" * 5000 + "}"
+    for body in (too_deep, too_long_a_number):
+        (tmp_path / "package.json").write_text(body, encoding="utf-8")
+        assert probe(tmp_path)["dependencies"] == [], body[:20]
+
+
 def test_readme_excerpt_is_bounded(tmp_path):
     (tmp_path / "README.md").write_text("é" * 5000, encoding="utf-8")
     assert probe(tmp_path)["readme_excerpt"] == "é" * 1200
