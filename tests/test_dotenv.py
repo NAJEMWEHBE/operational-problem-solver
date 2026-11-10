@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from ops_solver.cli import _dotenv_value, _load_dotenv
 
 
@@ -82,3 +84,32 @@ def test_endpoint_from_the_real_environment_is_kept(tmp_path, monkeypatch):
     (tmp_path / ".env").write_text("ANTHROPIC_BASE_URL=https://example.invalid\n", encoding="utf-8")
     _load_dotenv(tmp_path)
     assert os.environ["ANTHROPIC_BASE_URL"] == "https://proxy.example"
+
+
+def test_a_dotenv_that_is_not_a_regular_file_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    (tmp_path / ".env").mkdir()  # a folder named .env
+    _load_dotenv(tmp_path)
+    assert "ANTHROPIC_API_KEY" not in os.environ
+
+
+def test_a_linked_dotenv_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    target = tmp_path / "elsewhere.env"
+    target.write_text("ANTHROPIC_API_KEY=sk-linked\n", encoding="utf-8")
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    try:
+        (proj / ".env").symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("this OS/account can't create symlinks")
+    _load_dotenv(proj)
+    assert "ANTHROPIC_API_KEY" not in os.environ
+
+
+def test_dotenv_read_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    padding = "# " + "x" * (70 * 1024) + "\n"  # past the 64 KiB read limit
+    (tmp_path / ".env").write_text(padding + "ANTHROPIC_API_KEY=sk-late\n", encoding="utf-8")
+    _load_dotenv(tmp_path)
+    assert "ANTHROPIC_API_KEY" not in os.environ

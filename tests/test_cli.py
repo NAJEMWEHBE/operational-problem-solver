@@ -171,3 +171,10 @@ def test_run_passes_arguments_through_literally(monkeypatch, tmp_path):
         "test_cmd": "echo ${OPS_ARGV_PROBE} {file}",
         "lang": "$OPS_ARGV_PROBE",
     }
+
+
+def test_run_turns_off_typer_argv_expansion(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli, "app", lambda *a, **kw: calls.append((a, kw)))
+    cli.run()
+    assert calls == [((), {"windows_expand_args": False})]

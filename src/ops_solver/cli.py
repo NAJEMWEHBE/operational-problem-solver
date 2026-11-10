@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .config import CHEAP_WORKER_MODEL, RunConfig
+from .env_probe import read_regular_file
 from .models import RunReport
 from .orchestrator import solve
 
@@ -21,20 +22,22 @@ app = typer.Typer(add_completion=False, help="Multi-team consensus + ELO problem
 console = Console()
 
 
-# ANTHROPIC_BASE_URL is deliberately not accepted from a .env: the endpoint
-# receives the credential and the problem text and writes every reply, so only
-# the operator's real environment (or `ant auth` profile) may choose it.
+# The API endpoint is taken only from the real environment (or an `ant auth`
+# profile), not from a `.env`.
 _DOTENV_ALLOWED = {"ANTHROPIC_API_KEY", "ANTHROPIC_LOG"}
+_DOTENV_BYTES = 64 * 1024
 
 
 def _load_dotenv(cwd: Path) -> None:
     """Minimal .env loader: only an allow-list of keys we use, so a stray .env in
     the working directory can't inject arbitrary environment variables or choose
-    the API endpoint."""
-    env = cwd / ".env"
-    if not env.exists() or os.environ.get("ANTHROPIC_API_KEY"):
+    the API endpoint. Only a regular file is read, and only its first 64 KiB."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
         return
-    for line in env.read_text(encoding="utf-8", errors="ignore").splitlines():
+    text = read_regular_file(cwd / ".env", _DOTENV_BYTES)
+    if text is None:
+        return
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

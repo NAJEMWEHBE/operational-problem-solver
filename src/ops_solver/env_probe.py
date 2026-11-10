@@ -25,21 +25,22 @@ _MAX_DEPS = 50
 _DEP_CHARS = 100                 # per dependency entry; real package names are far shorter
 
 
-def _is_regular_file(cwd: Path, name: str) -> bool:
-    """True only for a regular file directly inside `cwd`. A symlink (or junction,
-    directory, FIFO, device) never counts, so it can't make the probe read or
-    report on a path outside the working directory."""
+def is_regular_file(path: Path) -> bool:
+    """True only when `path` itself is a regular file. A symlink (or junction,
+    directory, FIFO, device) never counts, so it can't make a reader look at a
+    path outside the folder it was given."""
     try:
-        return stat.S_ISREG((cwd / name).lstat().st_mode)
+        return stat.S_ISREG(Path(path).lstat().st_mode)
     except OSError:
         return False
 
 
-def _read_file(cwd: Path, name: str, max_bytes: int) -> str | None:
-    """Up to `max_bytes` of the regular file `cwd/name`, decoded; None when it is
-    absent, unreadable or not a regular file. Opened without following a link
-    where the OS allows it, and the opened file must be the one lstat() saw."""
-    p = cwd / name
+def read_regular_file(path: Path, max_bytes: int) -> str | None:
+    """Up to `max_bytes` of the regular file at `path`, decoded as UTF-8; None when
+    it is absent, unreadable or not a regular file. Opened without following a
+    link where the OS allows it, and the opened file must be the one lstat() saw.
+    Used for every file read from the working directory."""
+    p = Path(path)
     try:
         before = p.lstat()
     except OSError:
@@ -83,7 +84,7 @@ def _detect_language(cwd: Path, files: list[str]) -> str:
         "build.gradle": "java",
     }
     for marker, lang in markers.items():
-        if _is_regular_file(cwd, marker):
+        if is_regular_file(cwd / marker):
             return lang
     ext_counts: dict[str, int] = {}
     ext_lang = {
@@ -106,7 +107,7 @@ def _detect_language(cwd: Path, files: list[str]) -> str:
 
 def _read_deps(cwd: Path) -> list[str]:
     deps: list[str] = []
-    pkg = _read_file(cwd, "package.json", _MANIFEST_BYTES)
+    pkg = read_regular_file(cwd / "package.json", _MANIFEST_BYTES)
     if pkg is not None:
         try:
             data = json.loads(pkg)
@@ -117,7 +118,7 @@ def _read_deps(cwd: Path) -> list[str]:
                 names = data.get(section)
                 if isinstance(names, dict):
                     deps += [str(n) for n in names]
-    req = _read_file(cwd, "requirements.txt", _MANIFEST_BYTES)
+    req = read_regular_file(cwd / "requirements.txt", _MANIFEST_BYTES)
     if req is not None:
         for line in req.splitlines():
             line = line.strip()
@@ -128,9 +129,9 @@ def _read_deps(cwd: Path) -> list[str]:
 
 def _read_readme(cwd: Path, limit: int = _README_CHARS) -> str:
     for name in ("README.md", "README.rst", "README.txt", "README"):
-        if _is_regular_file(cwd, name):
+        if is_regular_file(cwd / name):
             # bounded read (UTF-8 is at most 4 bytes per character)
-            return (_read_file(cwd, name, limit * 4) or "")[:limit]
+            return (read_regular_file(cwd / name, limit * 4) or "")[:limit]
     return ""
 
 
