@@ -254,7 +254,7 @@ async def test_out_writes_the_winner_and_respects_force(tmp_path: Path):
 async def test_out_does_not_write_through_a_dangling_link(tmp_path: Path):
     proj = tmp_path / "proj"
     proj.mkdir()
-    target = tmp_path / "elsewhere" / "planted.py"
+    target = tmp_path / "elsewhere" / "existing_link.py"
     _link(proj / "out.py", target)
     report = await solve(_out_cfg(proj, proj / "out.py"), llm=MockLLM())
     assert not target.exists() and not target.parent.exists()

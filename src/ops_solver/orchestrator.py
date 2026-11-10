@@ -147,10 +147,11 @@ def _write_out(cfg: RunConfig, src: Path) -> str | None:
     """Copy the winning file to the exact path given with --out; returns a warning
     when nothing was written.
 
-    The working directory may hold links planted by whoever wrote it, so the path
-    is never resolved through a link: any existing entry, a dangling link included,
-    counts as occupied; --force replaces a link itself, never its target; and a
-    path inside the working directory must not leave it through a linked folder."""
+    The working directory may contain links, so the target path itself is never
+    followed: any existing entry, a dangling link included, counts as occupied;
+    --force replaces a link at the target path, never its target. It never writes
+    through a link at the target path, nor out of the working directory through a
+    linked folder."""
     dest = cfg.out_path.absolute()
     if os.path.lexists(dest):
         if not cfg.force:
