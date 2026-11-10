@@ -9,12 +9,65 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 from pathlib import Path
 
 _LINTERS = ["ruff", "eslint", "flake8", "pylint", "golangci-lint", "clippy"]
 _TEST_RUNNERS = ["pytest", "npm", "go", "cargo", "jest", "vitest"]
 
 _SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "runs", "dist", "build"}
+
+# Everything read here ends up in every Intelligence request, so every read and
+# every entry has a bound.
+_README_CHARS = 1200
+_MANIFEST_BYTES = 256 * 1024     # package.json / requirements.txt
+_MAX_DEPS = 50
+_DEP_CHARS = 100                 # per dependency entry; real package names are far shorter
+
+
+def _is_regular_file(cwd: Path, name: str) -> bool:
+    """True only for a regular file directly inside `cwd`. A symlink (or junction,
+    directory, FIFO, device) never counts, so it can't make the probe read or
+    report on a path outside the working directory."""
+    try:
+        return stat.S_ISREG((cwd / name).lstat().st_mode)
+    except OSError:
+        return False
+
+
+def _read_file(cwd: Path, name: str, max_bytes: int) -> str | None:
+    """Up to `max_bytes` of the regular file `cwd/name`, decoded; None when it is
+    absent, unreadable or not a regular file. Opened without following a link
+    where the OS allows it, and the opened file must be the one lstat() saw."""
+    p = cwd / name
+    try:
+        before = p.lstat()
+    except OSError:
+        return None
+    if not stat.S_ISREG(before.st_mode):
+        return None
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    try:
+        fd = os.open(p, flags)
+    except OSError:
+        return None
+    try:
+        with os.fdopen(fd, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            if not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != (
+                before.st_dev,
+                before.st_ino,
+            ):
+                return None  # swapped between lstat() and open()
+            data = fh.read(max_bytes)
+    except OSError:
+        return None
+    return data.decode("utf-8", errors="ignore")
 
 
 def _detect_language(cwd: Path, files: list[str]) -> str:
@@ -30,7 +83,7 @@ def _detect_language(cwd: Path, files: list[str]) -> str:
         "build.gradle": "java",
     }
     for marker, lang in markers.items():
-        if (cwd / marker).exists():
+        if _is_regular_file(cwd, marker):
             return lang
     ext_counts: dict[str, int] = {}
     ext_lang = {
@@ -53,35 +106,31 @@ def _detect_language(cwd: Path, files: list[str]) -> str:
 
 def _read_deps(cwd: Path) -> list[str]:
     deps: list[str] = []
-    pkg = cwd / "package.json"
-    if pkg.exists():
+    pkg = _read_file(cwd, "package.json", _MANIFEST_BYTES)
+    if pkg is not None:
         try:
-            data = json.loads(pkg.read_text(encoding="utf-8", errors="ignore"))
-            deps += list(data.get("dependencies", {}).keys())
-            deps += list(data.get("devDependencies", {}).keys())
-        except (json.JSONDecodeError, OSError):
-            pass
-    req = cwd / "requirements.txt"
-    if req.exists():
-        try:
-            for line in req.read_text(encoding="utf-8", errors="ignore").splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    deps.append(line.split("==")[0].split(">")[0].split("<")[0].strip())
-        except OSError:
-            pass
-    return deps[:50]
+            data = json.loads(pkg)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, dict):
+            for section in ("dependencies", "devDependencies"):
+                names = data.get(section)
+                if isinstance(names, dict):
+                    deps += [str(n) for n in names]
+    req = _read_file(cwd, "requirements.txt", _MANIFEST_BYTES)
+    if req is not None:
+        for line in req.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                deps.append(line.split("==")[0].split(">")[0].split("<")[0].strip())
+    return [d[:_DEP_CHARS] for d in deps[:_MAX_DEPS]]
 
 
-def _read_readme(cwd: Path, limit: int = 1200) -> str:
+def _read_readme(cwd: Path, limit: int = _README_CHARS) -> str:
     for name in ("README.md", "README.rst", "README.txt", "README"):
-        p = cwd / name
-        if p.exists():
-            try:
-                with p.open("r", encoding="utf-8", errors="ignore") as fh:
-                    return fh.read(limit)   # bounded read; don't load a huge file into memory
-            except OSError:
-                return ""
+        if _is_regular_file(cwd, name):
+            # bounded read (UTF-8 is at most 4 bytes per character)
+            return (_read_file(cwd, name, limit * 4) or "")[:limit]
     return ""
 
 
