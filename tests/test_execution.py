@@ -3,7 +3,7 @@
 import pytest
 
 from ops_solver.config import RunConfig
-from ops_solver.execution import extract_solution, run_workers
+from ops_solver.execution import _filename, extract_solution, run_workers
 from ops_solver.models import ContextManifest
 
 
@@ -37,11 +37,20 @@ def test_fence_tag_overrides_default_language():
 @pytest.mark.parametrize(
     ("tag", "language"),
     [("py", "python"), ("PY", "python"), ("python3", "python"), ("js", "javascript"),
-     ("ts", "typescript"), ("rs", "rust"), ("sh", "bash"), ("c++", "cpp"), ("c#", "csharp")],
+     ("ts", "typescript"), ("rs", "rust"), ("c++", "cpp"), ("c#", "csharp")],
 )
 def test_short_fence_tags_name_the_language(tag, language):
     _, lang, _ = extract_solution(f"```{tag}\nx\n```", "go")
     assert lang == language
+
+
+@pytest.mark.parametrize("shell", ["sh", "zsh", "bash"])
+def test_a_shell_dialect_keeps_its_name_and_is_a_sh_file(shell):
+    """zsh is not bash: the judge and the report get the dialect that was asked
+    for, as a fence tag or as the default; only the file name is shared."""
+    assert extract_solution(f"```{shell}\necho hi\n```", "go")[1] == shell
+    assert extract_solution("echo hi", shell)[1] == shell
+    assert _filename(shell) == "solution.sh"
 
 
 @pytest.mark.parametrize("text", ["```\ndef f(:\n    pass\n```", "def f(:\n    pass"])

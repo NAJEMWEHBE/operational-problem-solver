@@ -45,6 +45,8 @@ _LANG_EXT = {
     "cpp": "cpp",
     "csharp": "cs",
     "bash": "sh",
+    "sh": "sh",
+    "zsh": "sh",
     "shell": "sh",
     "html": "html",
 }
@@ -62,8 +64,6 @@ _LANG_ALIASES = {
     "c++": "cpp",
     "cs": "csharp",
     "c#": "csharp",
-    "sh": "bash",
-    "zsh": "bash",
 }
 
 
