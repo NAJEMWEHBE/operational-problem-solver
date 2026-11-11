@@ -100,6 +100,41 @@ async def test_reverse_verdict_is_used_when_the_forward_call_fails():
     assert board.winner == "W0"
 
 
+class JudgePrefersW0ButForwardRaises(JudgePrefersW0):
+    """The forward order of (W0, W1) raises, as an API error (429, 5xx, timeout) would."""
+
+    async def judge(self, *, model, system, user, max_tokens=1500):
+        if "id=W0," in user.split("Solution B")[0]:
+            raise RuntimeError("simulated API error")
+        return await super().judge(model=model, system=system, user=user, max_tokens=max_tokens)
+
+
+async def test_reverse_verdict_is_kept_when_the_forward_call_raises():
+    # The other order's verdict is already paid for: an exception in one order
+    # must not throw it away (same as a None verdict above).
+    board = await run_tournament(
+        JudgePrefersW0ButForwardRaises(), RunConfig(problem="p"), _arts(2), _manifest(), {}
+    )
+    assert len(board.matches) == 1
+    match = board.matches[0]
+    assert (match.a, match.b, match.score_a) == ("W0", "W1", 1.0)
+    assert board.winner == "W0"
+
+
+class JudgeAllRaise:
+    async def judge(self, *, model, system, user, max_tokens=1500):
+        raise RuntimeError("simulated API error")
+
+
+async def test_both_orders_raising_drops_the_match_and_logs_the_cause(caplog):
+    with caplog.at_level("WARNING"):
+        board = await run_tournament(
+            JudgeAllRaise(), RunConfig(problem="p"), _arts(2), _manifest(), {}
+        )
+    assert board.matches == []
+    assert "simulated API error" in caplog.text
+
+
 class RecordingJudge(JudgeAWins):
     def __init__(self) -> None:
         self.prompts: list[str] = []

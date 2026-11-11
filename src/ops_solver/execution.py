@@ -45,11 +45,34 @@ _LANG_EXT = {
     "cpp": "cpp",
     "csharp": "cs",
     "bash": "sh",
+    "sh": "sh",
+    "zsh": "sh",
     "shell": "sh",
     "html": "html",
 }
 
-_FENCE_RE = re.compile(r"```([\w+-]*)\n(.*?)```", re.DOTALL)
+# Short fence tags models often write, mapped to the names _LANG_EXT knows.
+_LANG_ALIASES = {
+    "py": "python",
+    "python3": "python",
+    "js": "javascript",
+    "node": "javascript",
+    "ts": "typescript",
+    "rs": "rust",
+    "golang": "go",
+    "rb": "ruby",
+    "c++": "cpp",
+    "cs": "csharp",
+    "c#": "csharp",
+}
+
+
+def _canonical_lang(language: str) -> str:
+    language = language.strip()
+    return _LANG_ALIASES.get(language.lower(), language)
+
+
+_FENCE_RE = re.compile(r"```([\w+#-]*)\n(.*?)```", re.DOTALL)
 
 
 def _manifest_block(manifest: ContextManifest) -> str:
@@ -68,17 +91,18 @@ def extract_solution(text: str, default_lang: str) -> tuple[str, str, str]:
 
     Picks the largest fenced code block as the solution; everything outside the
     blocks is treated as explanation. Falls back to the whole text as code."""
+    default_lang = _canonical_lang(default_lang)
     blocks = _FENCE_RE.findall(text or "")
     if not blocks:
         return text.strip(), default_lang, ""
     lang, code = max(blocks, key=lambda b: len(b[1]))
-    language = (lang or "").strip() or default_lang
+    language = _canonical_lang(lang or "") or default_lang
     explanation = _FENCE_RE.sub("", text).strip()
     return code.strip(), language, explanation
 
 
 def _filename(language: str) -> str:
-    ext = _LANG_EXT.get(language.lower(), "txt")
+    ext = _LANG_EXT.get(_canonical_lang(language).lower(), "txt")
     return f"solution.{ext}"
 
 
