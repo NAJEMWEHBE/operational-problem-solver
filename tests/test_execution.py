@@ -44,6 +44,14 @@ def test_short_fence_tags_name_the_language(tag, language):
     assert lang == language
 
 
+@pytest.mark.parametrize("text", ["```\ndef f(:\n    pass\n```", "def f(:\n    pass"])
+def test_a_short_default_language_is_named_in_full(text):
+    """`--lang python3` with an untagged fence, or no fence: the artifact is
+    "python", the name the consensus gate's syntax check looks for."""
+    _, lang, _ = extract_solution(text, "python3")
+    assert lang == "python"
+
+
 class _OneFenceLLM:
     """Stub LLM: every worker answers with the same ```py block (no API call)."""
 

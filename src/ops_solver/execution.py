@@ -91,6 +91,7 @@ def extract_solution(text: str, default_lang: str) -> tuple[str, str, str]:
 
     Picks the largest fenced code block as the solution; everything outside the
     blocks is treated as explanation. Falls back to the whole text as code."""
+    default_lang = _canonical_lang(default_lang)
     blocks = _FENCE_RE.findall(text or "")
     if not blocks:
         return text.strip(), default_lang, ""
